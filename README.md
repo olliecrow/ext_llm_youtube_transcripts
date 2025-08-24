@@ -2,6 +2,8 @@
 
 A Chrome extension that exports YouTube transcripts from all open tabs with just one click. All transcripts are downloaded as individual Markdown files.
 
+NOTE: use at your own risk.
+
 ## Features
 
 - 🎯 **One-Click Batch Export**: Click extension icon → exports ALL open YouTube tabs as Markdown files
