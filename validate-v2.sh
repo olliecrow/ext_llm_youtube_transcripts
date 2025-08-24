@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "=== YouTube Transcript Copier v2.0 - Final Validation ==="
+echo "=== YouTube Transcript Copier - Final Validation ==="
 echo ""
 
 echo "1. File Structure Check:"

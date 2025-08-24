@@ -18,7 +18,7 @@ A Chrome extension that exports YouTube transcripts from all open tabs with just
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" in the top right corner
 4. Click "Load unpacked" button
-5. Select the `youtube-transcript-copier` folder
+5. Select the repo folder
 6. Pin the extension to your toolbar for easy access
 
 ## How to Use
