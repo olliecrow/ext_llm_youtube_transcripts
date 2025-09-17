@@ -4,66 +4,110 @@ const activeOperations = new Map();
 // Track pending extraction promises for event-driven communication
 const pendingExtractions = new Map();
 
-// Initialize extension - no setup needed
+// Initialize extension menus when installed or updated
 chrome.runtime.onInstalled.addListener(() => {
   console.log('YouTube Transcript extension loaded');
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'yt-export-current',
+      title: 'Export This Tab Transcript (Markdown)',
+      contexts: ['action']
+    });
+    chrome.contextMenus.create({
+      id: 'yt-copy-current',
+      title: 'Copy This Tab Transcript to Clipboard',
+      contexts: ['action']
+    });
+    chrome.contextMenus.create({
+      id: 'yt-export-all',
+      title: 'Export All Open YouTube Transcripts',
+      contexts: ['action']
+    });
+  });
 });
 
 // Handle direct click on extension icon - export all YouTube tabs
-chrome.action.onClicked.addListener(async (tab) => {
-  await exportAllYouTubeTabs();
+chrome.action.onClicked.addListener(() => {
+  void exportAllYouTubeTabs();
 });
 
-// No context menu handlers needed
+// Handle context menu interactions from extension icon
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'yt-export-current') {
+    if (tab) {
+      void executeTranscriptAction(tab, 'markdown');
+    }
+  } else if (info.menuItemId === 'yt-copy-current') {
+    if (tab) {
+      void executeTranscriptAction(tab, 'clipboard');
+    }
+  } else if (info.menuItemId === 'yt-export-all') {
+    void exportAllYouTubeTabs();
+  }
+});
 
 
 // Main function to execute transcript extraction
-async function executeTranscriptAction(tab, mode) {
-  const tabId = tab.id;
-  
-  // Check if tab is valid
-  if (!tab || !tab.url) {
-    showBadge(tabId, "!", "#FF0000");
-    return;
+async function executeTranscriptAction(tab, mode = 'markdown') {
+  if (!tab || typeof tab.id !== 'number') {
+    return false;
   }
-  
-  // Check if it's a YouTube URL
+
+  const tabId = tab.id;
+
+  if (!tab.url) {
+    showBadge(tabId, '!', '#FF0000');
+    return false;
+  }
+
   const isYouTube = tab.url.includes('youtube.com') || tab.url.includes('youtu.be');
   if (!isYouTube) {
-    showBadge(tabId, "!", "#FF0000");
+    showBadge(tabId, '!', '#FF0000');
     setTimeout(() => clearBadge(tabId), 3000);
-    return;
+    return false;
   }
-  
-  // Check if operation already in progress for this tab
+
   if (activeOperations.has(tabId)) {
-    showBadge(tabId, "...", "#FFA500"); // Orange for busy
-    return;
+    showBadge(tabId, '...', '#FFA500');
+    return false;
   }
-  
-  // Mark operation as active
+
   activeOperations.set(tabId, mode);
-  
+
+  let extractionPromise = null;
+
   try {
-    // Show processing state
-    showBadge(tabId, "...", "#808080");
-    
-    // Inject content script
+    showBadge(tabId, '...', '#808080');
+
     await chrome.scripting.executeScript({
-      target: { tabId: tabId },
+      target: { tabId },
       files: ['content.js']
     });
-    
-    // Send extraction command
+
+    extractionPromise = waitForExtraction(tabId, mode === 'markdown' ? 45000 : 20000);
+
     await chrome.tabs.sendMessage(tabId, {
-      type: 'START_EXTRACTION'
+      type: 'START_EXTRACTION',
+      mode
     });
-    
+
+    await extractionPromise;
+    return true;
   } catch (error) {
+    if (extractionPromise) {
+      rejectPendingExtraction(tabId, error);
+      await extractionPromise.catch(() => {});
+    }
+
     console.error('Error executing transcript action:', error);
-    showBadge(tabId, "!", "#FF0000");
+    showBadge(tabId, '!', '#FF0000');
     setTimeout(() => clearBadge(tabId), 3000);
     activeOperations.delete(tabId);
+    return false;
+  } finally {
+    if (!pendingExtractions.has(tabId)) {
+      activeOperations.delete(tabId);
+    }
   }
 }
 
@@ -332,6 +376,22 @@ async function waitForTabReady(tabId, timeout = 10000) {
   }
   
   throw new Error('Tab failed to load within timeout');
+}
+
+function rejectPendingExtraction(tabId, error) {
+  const entry = pendingExtractions.get(tabId);
+  if (!entry) {
+    return;
+  }
+
+  const { reject, timeoutId } = entry;
+  clearTimeout(timeoutId);
+  pendingExtractions.delete(tabId);
+
+  if (typeof reject === 'function') {
+    const rejectionReason = error instanceof Error ? error : new Error(String(error));
+    reject(rejectionReason);
+  }
 }
 
 // Helper function to wait for extraction to complete

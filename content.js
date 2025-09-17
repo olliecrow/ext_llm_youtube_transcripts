@@ -10,9 +10,12 @@
   // Track if extraction is currently running
   let extractionInProgress = false;
 
+  // Cache expensive lookups for the current extraction lifecycle
+  let cachedPlayerResponse = null;
+  let cachedYouTubeConfig = null;
+
   // Network timeout configuration
   const NETWORK_TIMEOUT_MS = 30000; // 30 seconds
-  const NETWORK_TIMEOUT_SHORT_MS = 10000; // 10 seconds for quick requests
   
   // Rate limiting to prevent YouTube blocking
   class RateLimiter {
@@ -185,7 +188,7 @@
     if (message.type === 'START_EXTRACTION') {
       // Check if extraction is already running
       if (extractionInProgress) {
-        console.log('Extraction already in progress');
+        console.debug('Extraction already in progress');
         chrome.runtime.sendMessage({
           type: 'EXTRACTION_ERROR',
           error: {
@@ -195,66 +198,71 @@
         });
         return;
       }
-      await performExtraction();
+      const mode = message.mode || 'markdown';
+      await performExtraction(mode);
     }
   }
   
-  async function performExtraction() {
+  async function performExtraction(mode) {
     extractionInProgress = true;
-    
-    // Announce to screen readers
+    cachedPlayerResponse = null;
+    cachedYouTubeConfig = null;
+
+    const extractionMode = mode === 'clipboard' ? 'clipboard' : 'markdown';
+
     announceToScreenReader('Starting transcript extraction', 'polite');
-    
-    // Check if rate limited
+
     if (rateLimiter.queue.length > 5) {
       announceToScreenReader('Multiple requests queued, please wait', 'polite');
     }
-    
+
     try {
-      // Extract video ID
       const videoId = extractVideoId();
       if (!videoId) {
         throw new ExtensionError('No video found on this page', 'NO_VIDEO');
       }
-      
-      // Announce progress
+
       announceToScreenReader('Video found, extracting transcript', 'polite');
-      
-      // Extracting for video ID
-      
-      // Extract metadata (with graceful degradation)
+
       const metadata = await extractMetadata(videoId);
-      
-      // Extract transcript (required)
+
       const transcript = await extractTranscript(videoId);
       if (!transcript) {
         throw new ExtensionError('No transcript available for this video', 'NO_TRANSCRIPT');
       }
-      
-      // Format output
+
       const output = formatOutput({
         ...metadata,
         transcript,
         videoId
       });
-      
-      // Handle output - always download as markdown
-      const result = await downloadAsMarkdown(output, metadata.title || 'transcript');
-      
+
+      let result;
+      if (extractionMode === 'clipboard') {
+        result = await copyToClipboard(output);
+      } else {
+        result = await downloadAsMarkdown(output, metadata.title || 'transcript');
+      }
+
       if (!result.success) {
         throw new ExtensionError(result.error || 'Output failed', 'OUTPUT_FAILED');
       }
-      
-      // Announce success
-      const successMessage = 'Transcript downloaded as Markdown';
+
+      const successMessage = extractionMode === 'clipboard'
+        ? 'Transcript copied to clipboard'
+        : 'Transcript downloaded as Markdown';
       announceToScreenReader(successMessage, 'assertive');
-      
-      // Send success message
+
+      const successData = { mode: extractionMode, videoId };
+      if (result.filename) {
+        successData.filename = result.filename;
+      }
+
       chrome.runtime.sendMessage({
         type: 'EXTRACTION_SUCCESS',
-        data: { mode: 'markdown', videoId }
+        data: successData
       });
-      
+
     } catch (error) {
       console.error('Extraction failed:', error);
       
@@ -273,7 +281,8 @@
         type: 'EXTRACTION_ERROR',
         error: {
           code: errorCode,
-          message: errorMessage
+          message: errorMessage,
+          mode: extractionMode
         }
       });
     } finally {
@@ -363,19 +372,12 @@
       const publishDate = playerResponse?.videoDetails?.publishDate ||
                          playerResponse?.microformat?.playerMicroformatRenderer?.publishDate ||
                          playerResponse?.microformat?.playerMicroformatRenderer?.uploadDate;
-      
-      console.log('Date extraction debug:');
-      console.log('- playerResponse exists:', !!playerResponse);
-      console.log('- videoDetails:', !!playerResponse?.videoDetails);
-      console.log('- microformat:', !!playerResponse?.microformat);
-      console.log('- publishDate found:', publishDate);
-      
+
       if (publishDate) {
         const formatted = formatPublishDate(publishDate);
-        console.log('- formatted date:', formatted);
-        metadata.publishDate = formatted;
-      } else {
-        console.warn('No publish date found in any location');
+        if (formatted) {
+          metadata.publishDate = formatted;
+        }
       }
       
       // Optional: description
@@ -416,7 +418,7 @@
         const result = await method(videoId);
         
         if (result && result.transcript) {
-          console.log(`✓ Transcript extracted using ${method.name}`);
+          console.debug(`Transcript extracted using ${method.name}`);
           return result.transcript;
         }
       } catch (error) {
@@ -505,11 +507,15 @@
         .trim();
       
       if (lineText) {
-        lines.push(lineText);
+        lines.push(lineText.replace(/\s+/g, ' ').trim());
       }
     }
     
-    return lines.join(' ').replace(/\s+/g, ' ').trim();
+    if (lines.length === 0) {
+      throw new Error('Transcript data empty');
+    }
+
+    return lines.join('\n').trim();
   }
   
   async function extractFromInnertube(videoId) {
@@ -615,18 +621,26 @@
     
     const lines = segments
       .map(seg => {
-        // Try multiple possible text locations
-        return seg?.transcriptSegmentRenderer?.snippet?.runs?.[0]?.text ||
-               seg?.transcriptSectionHeaderRenderer?.snippet?.runs?.[0]?.text ||
-               '';
+        const snippetRuns = seg?.transcriptSegmentRenderer?.snippet?.runs;
+        if (Array.isArray(snippetRuns)) {
+          return snippetRuns.map(run => run?.text || '').join('');
+        }
+
+        const headerRuns = seg?.transcriptSectionHeaderRenderer?.snippet?.runs;
+        if (Array.isArray(headerRuns)) {
+          return headerRuns.map(run => run?.text || '').join('');
+        }
+
+        return '';
       })
+      .map(text => text ? text.replace(/\s+/g, ' ').trim() : '')
       .filter(text => text.length > 0);
-    
+
     if (lines.length === 0) {
       throw new Error('No text extracted from Innertube segments');
     }
     
-    return lines.join(' ').replace(/\s+/g, ' ').trim();
+    return lines.join('\n').trim();
   }
   
   async function extractFromTimedText(videoId) {
@@ -690,81 +704,59 @@
     }
     
     const lines = Array.from(textNodes)
-      .map(node => node.textContent)
-      .filter(text => text && text.trim().length > 0);
-    
-    return lines.join(' ').replace(/\s+/g, ' ').trim();
+      .map(node => node.textContent ? node.textContent.replace(/\s+/g, ' ').trim() : '')
+      .filter(text => text.length > 0);
+
+    return lines.join('\n').trim();
   }
   
   async function extractFromDOM(videoId) {
     try {
-      // Find and click transcript button - try multiple selectors
-      let transcriptButton = null;
-      const buttonSelectors = [
-        'button[aria-label*="transcript" i]',
-        'button[aria-label*="Show transcript" i]',
-        'ytd-menu-service-item-renderer:has(yt-formatted-string:contains("transcript"))',
-        'ytd-menu-service-item-renderer[aria-label*="transcript" i]',
-        'button[title*="transcript" i]'
-      ];
-      
-      // First check if panel is already open
       let transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]');
-      
+      let panelOpened = false;
+
       if (!transcriptPanel) {
-        // Try to find the more actions button first
         const moreActionsButton = document.querySelector('button[aria-label*="More actions" i], #button-shape button[aria-label*="More" i]');
         if (moreActionsButton) {
-          moreActionsButton.click();
-          await new Promise(resolve => setTimeout(resolve, 500));
+          triggerClick(moreActionsButton);
+          await new Promise(resolve => setTimeout(resolve, 400));
         }
-        
-        for (const selector of buttonSelectors) {
-          transcriptButton = document.querySelector(selector);
-          if (transcriptButton) {
-            break;
-          }
-        }
-        
-        if (!transcriptButton) {
+
+        const transcriptTrigger = findTranscriptTrigger();
+        if (!transcriptTrigger) {
           throw new Error('Transcript button not found');
         }
-        
-        // Click to open transcript panel
-        transcriptButton.click();
-        
-        // Wait for panel to load
-        await waitForElement('ytd-transcript-segment-list-renderer, ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]', 5000);
+
+        triggerClick(transcriptTrigger);
+        panelOpened = true;
+
+        transcriptPanel = await waitForElement('ytd-transcript-segment-list-renderer, ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]', 5000);
       }
-      
-      // Extract text from segments
-      const segments = document.querySelectorAll('ytd-transcript-segment-renderer, yt-formatted-string.ytd-transcript-segment-renderer');
-      if (segments.length === 0) {
+
+      const segmentContainer = transcriptPanel || document;
+      const segmentNodes = segmentContainer.querySelectorAll('ytd-transcript-segment-renderer, yt-formatted-string.ytd-transcript-segment-renderer');
+
+      if (segmentNodes.length === 0) {
         throw new Error('No transcript segments found in DOM');
       }
-      
-      const lines = Array.from(segments)
-        .map(segment => {
-          // Try multiple selectors for text content
-          const textElement = segment.querySelector('.segment-text, yt-formatted-string.segment-text') || 
-                             segment.querySelector('yt-formatted-string') ||
-                             segment;
-          return textElement ? textElement.textContent.trim() : '';
-        })
+
+      const lines = Array.from(segmentNodes)
+        .map(segment => segment.textContent ? segment.textContent.replace(/\s+/g, ' ').trim() : '')
         .filter(text => text.length > 0);
-      
+
       if (lines.length === 0) {
         throw new Error('No text extracted from DOM segments');
       }
-      
-      // Close transcript panel if we opened it
-      const closeButton = document.querySelector('ytd-engagement-panel-title-header-renderer button[aria-label*="Close" i]');
-      if (closeButton) {
-        closeButton.click();
+
+      if (panelOpened) {
+        const closeButton = document.querySelector('ytd-engagement-panel-title-header-renderer button[aria-label*="Close" i]');
+        if (closeButton) {
+          triggerClick(closeButton);
+        }
       }
-      
+
       return {
-        transcript: lines.join(' ').replace(/\s+/g, ' ').trim(),
+        transcript: lines.join('\n').trim(),
         source: 'dom'
       };
     } catch (error) {
@@ -800,87 +792,179 @@
       }, timeout);
     });
   }
+
+  function findTranscriptTrigger() {
+    const directSelectors = [
+      'button[aria-label*="transcript" i]',
+      'button[title*="transcript" i]',
+      'tp-yt-paper-item[aria-label*="transcript" i]'
+    ];
+
+    for (const selector of directSelectors) {
+      const candidate = document.querySelector(selector);
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    const menuItems = Array.from(document.querySelectorAll('ytd-menu-service-item-renderer'));
+    for (const item of menuItems) {
+      const text = item.textContent?.toLowerCase() || '';
+      if (text.includes('transcript')) {
+        const actionable = item.querySelector('tp-yt-paper-item, button, a');
+        return actionable || item;
+      }
+    }
+
+    return null;
+  }
+
+  function triggerClick(element) {
+    if (!element) {
+      return;
+    }
+
+    if (typeof element.click === 'function') {
+      element.click();
+      return;
+    }
+
+    element.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    }));
+  }
+
+  function extractJsonBlock(source, marker) {
+    if (!source || !marker) {
+      return null;
+    }
+
+    const markerIndex = source.indexOf(marker);
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    const startIndex = source.indexOf('{', markerIndex);
+    if (startIndex === -1) {
+      return null;
+    }
+
+    let depth = 0;
+    for (let i = startIndex; i < source.length; i++) {
+      const char = source[i];
+      if (char === '{') {
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          return source.slice(startIndex, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function tryParseJson(text) {
+    if (typeof text !== 'string' || !text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      console.warn('Failed to parse JSON block:', error);
+      return null;
+    }
+  }
   
   async function getPlayerResponse() {
-    // Extract directly from script tags to avoid CSP violations
+    if (cachedPlayerResponse) {
+      return cachedPlayerResponse;
+    }
+
     const scripts = document.querySelectorAll('script');
-    console.log(`PlayerResponse extraction: found ${scripts.length} script tags`);
-    
+
     for (const script of scripts) {
-      if (script.textContent && script.textContent.includes('ytInitialPlayerResponse')) {
-        console.log('Found script with ytInitialPlayerResponse');
-        const match = script.textContent.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-        if (match) {
-          try {
-            const parsed = JSON.parse(match[1]);
-            console.log('Successfully parsed ytInitialPlayerResponse');
-            return parsed;
-          } catch (e) {
-            console.warn('Failed to parse ytInitialPlayerResponse from script tag:', e);
-            continue;
-          }
+      const text = script.textContent;
+      if (!text) {
+        continue;
+      }
+
+      if (text.includes('ytInitialPlayerResponse')) {
+        const jsonText = extractJsonBlock(text, 'ytInitialPlayerResponse');
+        const parsed = tryParseJson(jsonText);
+        if (parsed) {
+          cachedPlayerResponse = parsed;
+          return cachedPlayerResponse;
+        }
+      }
+
+      if (text.includes('"playerResponse"')) {
+        const jsonText = extractJsonBlock(text, '"playerResponse"');
+        const parsed = tryParseJson(jsonText);
+        if (parsed) {
+          cachedPlayerResponse = parsed;
+          return cachedPlayerResponse;
         }
       }
     }
-    
-    // Try alternative patterns
-    for (const script of scripts) {
-      if (script.textContent && script.textContent.includes('playerResponse')) {
-        console.log('Found script with playerResponse');
-        const matches = script.textContent.match(/"playerResponse":\s*({.+?})(?=,\s*")/);
-        if (matches) {
-          try {
-            const parsed = JSON.parse(matches[1]);
-            console.log('Successfully parsed alternative playerResponse');
-            return parsed;
-          } catch (e) {
-            console.warn('Failed to parse playerResponse from script tag:', e);
-            continue;
-          }
+
+    const playerElement = document.querySelector('ytd-player');
+    const playerInstance = playerElement && playerElement.player_;
+    if (playerInstance && typeof playerInstance.getPlayerResponse === 'function') {
+      try {
+        const response = playerInstance.getPlayerResponse();
+        if (response) {
+          cachedPlayerResponse = response;
+          return cachedPlayerResponse;
         }
+      } catch (error) {
+        console.warn('Failed to read player response from player object:', error);
       }
     }
-    
+
     console.warn('No playerResponse found in script tags');
     return null;
   }
   
   async function getYouTubeConfig() {
-    // Extract config from script tags to avoid CSP violations
-    const scripts = document.querySelectorAll('script');
-    
-    for (const script of scripts) {
-      if (script.textContent && script.textContent.includes('INNERTUBE_API_KEY')) {
-        try {
-          // Look for config in various patterns
-          const apiKeyMatch = script.textContent.match(/["']INNERTUBE_API_KEY["']\s*:\s*["']([^"']+)["']/);
-          const contextMatch = script.textContent.match(/["']INNERTUBE_CONTEXT["']\s*:\s*({[^}]+})/);
-          const versionMatch = script.textContent.match(/["']INNERTUBE_CLIENT_VERSION["']\s*:\s*["']([^"']+)["']/);
-          
-          if (apiKeyMatch) {
-            const config = {
-              apiKey: apiKeyMatch[1],
-              context: null,
-              clientVersion: versionMatch ? versionMatch[1] : null
-            };
-            
-            if (contextMatch) {
-              try {
-                config.context = JSON.parse(contextMatch[1]);
-              } catch (e) {
-                // Silently handle common parsing errors
-              }
-            }
-            
-            return config;
-          }
-        } catch (e) {
-          console.warn('Failed to parse YouTube config from script tag:', e);
-          continue;
-        }
-      }
+    if (cachedYouTubeConfig) {
+      return cachedYouTubeConfig;
     }
-    
+
+    const scripts = document.querySelectorAll('script');
+
+    for (const script of scripts) {
+      const text = script.textContent;
+      if (!text || !text.includes('INNERTUBE_API_KEY')) {
+        continue;
+      }
+
+      const apiKeyMatch = text.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"\\]+)"/);
+      if (!apiKeyMatch) {
+        continue;
+      }
+
+      const contextJson = extractJsonBlock(text, '"INNERTUBE_CONTEXT"');
+      const context = tryParseJson(contextJson);
+      if (!context) {
+        continue;
+      }
+
+      const versionMatch = text.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"\\]+)"/);
+
+      cachedYouTubeConfig = {
+        apiKey: apiKeyMatch[1],
+        context,
+        clientVersion: versionMatch ? versionMatch[1] : null
+      };
+
+      return cachedYouTubeConfig;
+    }
+
     console.warn('No YouTube config found in script tags');
     return null;
   }
@@ -979,6 +1063,52 @@
     return lines.join('\n');
   }
   
+  
+  async function copyToClipboard(text) {
+    // Prefer async clipboard API when available
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return { success: true };
+      } catch (error) {
+        console.warn('navigator.clipboard write failed, falling back:', error);
+      }
+    }
+
+    // Fallback to execCommand-based copy
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'absolute';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+
+      const selection = document.getSelection();
+      const previousRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+      textarea.select();
+      const successful = document.execCommand('copy');
+
+      document.body.removeChild(textarea);
+
+      if (selection) {
+        selection.removeAllRanges();
+        if (previousRange) {
+          selection.addRange(previousRange);
+        }
+      }
+
+      if (!successful) {
+        throw new Error('Fallback clipboard copy failed');
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Clipboard copy failed:', error);
+      return { success: false, error: error?.message || 'Clipboard copy failed' };
+    }
+  }
   
   function downloadAsMarkdown(text, title) {
     // Create human-readable timestamp for filename
