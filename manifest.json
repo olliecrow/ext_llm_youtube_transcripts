@@ -7,7 +7,7 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "contextMenus"
   ],
   
   "content_security_policy": {
