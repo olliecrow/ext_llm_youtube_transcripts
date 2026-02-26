@@ -95,3 +95,8 @@ Suggested flow.
 2. Open all sample videos and run batch export.
 3. Verify downloaded files include metadata and multiline transcripts.
 4. Spot check clipboard output for formatting.
+
+## Documentation map
+
+- `README.md`: human-facing project overview and usage
+- `docs/project-preferences.md`: durable maintenance and verification preferences
