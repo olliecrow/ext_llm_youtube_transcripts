@@ -26,6 +26,9 @@ dist/
 build/
 *.crx
 *.pem
+*.key
+*.p12
+*.pfx
 *.zip
 
 # Temporary files
@@ -51,7 +54,7 @@ test-results/
 
 # Logs
 logs/
-*.
+*.log
 
 # Claude Code agent files
 .claude/
