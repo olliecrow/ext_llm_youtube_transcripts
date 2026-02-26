@@ -1,87 +1,97 @@
 # YouTube Transcript Copier
 
-A Chrome extension that exports YouTube transcripts from all open tabs with just one click. All transcripts are downloaded as individual Markdown files.
+A Chrome extension that exports YouTube transcripts from open tabs with one click.
+Each transcript is downloaded as its own Markdown file.
 
-NOTE: use at your own risk.
+Use at your own risk.
+
+## What this project is trying to achieve
+
+Make transcript capture fast when you are researching across many YouTube videos.
+
+## What you experience as a user
+
+1. Open one or more YouTube tabs.
+2. Left click the extension icon to export all open YouTube tabs.
+3. Right click the extension icon for per-tab actions.
+4. Save Markdown files or copy transcript text to your clipboard.
+
+## Quick start
+
+1. Download or clone this repository.
+2. Open Chrome and go to `chrome://extensions/`.
+3. Enable Developer mode.
+4. Click Load unpacked.
+5. Select the repo folder.
+6. Pin the extension for easier access.
 
 ## Features
 
-- 🎯 **One-Click Batch Export**: Left-click the extension icon to export every open YouTube tab as Markdown
-- 🎚️ **Per-Tab Controls**: Right-click the icon to export just the active tab or copy its transcript to the clipboard
-- 🔄 **Auto Tab Switching**: Tabs briefly activate as needed to guarantee the player loads before extraction
-- 🔒 **Local-Only Processing**: No servers, tracking, or extra permissions — everything happens in your browser
-- 🚀 **Resilient Extraction**: Falls back across multiple caption sources (JSON, Innertube, timed text, DOM)
-- 📝 **Rich Metadata**: Includes title, channel, publish date, description, and canonical URLs in the Markdown header
-- 🎬 **Wide Coverage**: Handles standard videos, Shorts, playlists that open in watch mode, and youtu.be links
+- Batch export for all open YouTube tabs.
+- Right click menu for current tab export and clipboard copy.
+- Automatic tab switching when needed so extraction can run.
+- Local-only processing in your browser.
+- Multiple extraction paths for better reliability.
+- Markdown output with metadata like title, channel, and links.
+- Coverage for standard videos, Shorts, and common YouTube URL formats.
 
-## Installation
+## Usage
 
-1. Download or clone this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" in the top right corner
-4. Click "Load unpacked" button
-5. Select the repo folder
-6. Pin the extension to your toolbar for easy access
+### Export all open YouTube tabs
 
-## How to Use
+1. Open the videos you want in separate tabs.
+2. Left click the extension icon.
+3. Tabs activate one by one while Markdown files download.
+4. Badge text shows progress and success count.
 
-### Export All Open YouTube Tabs
-1. Open the videos you care about in separate tabs
-2. **Left-click the extension icon**
-3. Tabs activate one-by-one while transcripts download as individual `.md` files
-4. The badge displays progress (e.g., `✓5` for five successes, `3/4` if one failed)
+### Export only the current tab as Markdown
 
-### Export Only the Current Tab (Markdown)
-1. Go to the YouTube tab you want to save
-2. **Right-click the extension icon**
-3. Choose **Export This Tab Transcript (Markdown)**
-4. A single Markdown file downloads and the badge flashes ✓
+1. Open the target YouTube tab.
+2. Right click the extension icon.
+3. Choose Export This Tab Transcript (Markdown).
 
-### Copy the Current Transcript to Clipboard
-1. Open a YouTube video
-2. **Right-click the extension icon**
-3. Choose **Copy This Tab Transcript to Clipboard**
-4. Paste anywhere — plain text with metadata is ready to go
+### Copy current tab transcript to clipboard
 
+1. Open the target YouTube tab.
+2. Right click the extension icon.
+3. Choose Copy This Tab Transcript to Clipboard.
 
-## Output Format
+## Output format
 
-The extension generates formatted text with the following structure:
+Each export includes key metadata, then transcript text.
 
-```
+```text
 Video Title
-Channel Name (if available)
-Publication Date (if available)
-Video Description (if available)
+Channel Name
+Publication Date
+Video Description
 https://www.youtube.com/watch?v=VIDEO_ID
-https://www.youtube.com/channel/CHANNEL_ID (if available)
+https://www.youtube.com/channel/CHANNEL_ID
 
-[Transcript text follows here...]
+Transcript text
 ```
-
-Transcripts retain sentence breaks from YouTube's caption data for easier reading.
 
 ## Permissions
 
-The manifest requests only:
+The manifest requests only these permissions.
 
-- `activeTab` — to interact with the tab you trigger from
-- `scripting` — to inject the content script when extraction runs
-- `contextMenus` — to power the right-click options on the extension icon
+- `activeTab`, to interact with the tab you trigger from
+- `scripting`, to inject content script during extraction
+- `contextMenus`, to power right click menu actions
 
-No storage, network, or host-wide permissions beyond YouTube are required.
+No storage, network, or broad host permissions are required beyond YouTube pages.
 
-## Quick Test Checklist
+## Quick test checklist
 
-Use the following sample videos to exercise each extraction path:
+Sample videos.
 
 - https://www.youtube.com/watch?v=kxpbdFMgPJ4
 - https://www.youtube.com/watch?v=hzA0sE7GVcU
 - https://www.youtube.com/watch?v=E6QjMPa3KcM
 
-Suggested flow:
+Suggested flow.
 
-1. Load one video and try each context menu action (Markdown + Clipboard)
-2. Open all three videos in separate tabs and trigger the batch export
-3. Verify the downloaded Markdown files include metadata and multi-line transcripts
-4. Spot-check clipboard output for formatting and newlines
+1. Load one video and test each context menu action.
+2. Open all sample videos and run batch export.
+3. Verify downloaded files include metadata and multiline transcripts.
+4. Spot check clipboard output for formatting.
