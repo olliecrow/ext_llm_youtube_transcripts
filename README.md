@@ -101,3 +101,11 @@ Suggested flow.
 - `README.md`: human-facing project overview and usage
 - `docs/README.md`: docs index and routing
 - `docs/project-preferences.md`: durable maintenance and verification preferences
+
+## Third-Party Dependency Trust Policy
+- Prefer official packages, libraries, SDKs, frameworks, and services from authoritative sources.
+- Prefer options that are reputable, well-maintained, popular, and well-supported.
+- Before adopting or upgrading third-party dependencies, verify ownership/publisher authenticity, maintenance activity, security history, license fit, and ecosystem adoption.
+- Avoid low-trust, obscure, or weakly maintained dependencies when a stronger alternative exists.
+- Pin versions and keep lockfiles current for reproducibility and supply-chain safety.
+- If trust signals are unclear, do not adopt the dependency until explicitly approved.
