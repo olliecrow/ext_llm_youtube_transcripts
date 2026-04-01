@@ -28,3 +28,11 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 
 - Preserve accurate author and committer attribution for each contributor.
 - Avoid destructive history rewrites unless needed for confidentiality remediation.
+
+## Language and Naming
+
+- Use plain English in chat, docs, notes, comments, reports, commit messages, issue text, and review text.
+- Prefer short words, short sentences, and direct statements.
+- If a technical term is needed, explain it in simple words the first time.
+- In code, prefer clear descriptive names over clever or vague names.
+- Rename confusing names when the change is low risk and clearly improves readability.
