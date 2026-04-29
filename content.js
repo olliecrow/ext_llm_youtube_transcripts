@@ -1,6 +1,6 @@
 (function() {
   'use strict';
-  
+
   // Check if we've already set up the listener
   if (window.__ytTranscriptExtractorInitialized) {
     return;
@@ -13,6 +13,7 @@
   // Cache expensive lookups for the current extraction lifecycle
   let cachedPlayerResponse = null;
   let cachedYouTubeConfig = null;
+  let cachedInitialData = null;
 
   // Network timeout configuration
   const NETWORK_TIMEOUT_MS = 30000; // 30 seconds
@@ -207,6 +208,7 @@
     extractionInProgress = true;
     cachedPlayerResponse = null;
     cachedYouTubeConfig = null;
+    cachedInitialData = null;
 
     const extractionMode = mode === 'clipboard' ? 'clipboard' : 'markdown';
 
@@ -540,25 +542,14 @@
         throw new Error('Could not extract Innertube config');
       }
       
-      // Try to find transcript params from the page
-      const playerResponse = await getPlayerResponse();
+      let transcriptParams = findTranscriptParams(await getInitialData());
       
-      // Look for engagement panels that might contain transcript data
-      const panels = playerResponse?.engagementPanels || [];
-      let transcriptParams = null;
-      
-      for (const panel of panels) {
-        if (panel?.engagementPanelSectionListRenderer?.content?.structuredDescriptionContentRenderer?.items) {
-          const items = panel.engagementPanelSectionListRenderer.content.structuredDescriptionContentRenderer.items;
-          for (const item of items) {
-            if (item?.videoDescriptionTranscriptSectionRenderer?.openTranscriptCommand?.serializedShareEntity) {
-              transcriptParams = item.videoDescriptionTranscriptSectionRenderer.openTranscriptCommand.serializedShareEntity;
-              break;
-            }
-          }
-        }
+      if (!transcriptParams) {
+        // Older page shapes can keep transcript params in player response panels.
+        const playerResponse = await getPlayerResponse();
+        transcriptParams = findTranscriptParams(playerResponse);
       }
-      
+
       if (!transcriptParams) {
         // Try alternative method to get params
         const transcriptButton = document.querySelector('[aria-label*="transcript" i]');
@@ -616,36 +607,31 @@
       throw error;
     }
   }
-  
+
+  function findTranscriptParams(source) {
+    if (!source || typeof source !== 'object') {
+      return null;
+    }
+
+    const directParams = source.getTranscriptEndpoint?.params ||
+      source.videoDescriptionTranscriptSectionRenderer?.openTranscriptCommand?.serializedShareEntity;
+
+    if (typeof directParams === 'string' && directParams) {
+      return directParams;
+    }
+
+    for (const value of Object.values(source)) {
+      const nestedParams = findTranscriptParams(value);
+      if (nestedParams) {
+        return nestedParams;
+      }
+    }
+
+    return null;
+  }
+
   function extractTextFromInnertube(data) {
-    // Try multiple possible paths in the response
-    let segments = data?.actions?.[0]?.updateEngagementPanelAction?.content
-      ?.transcriptRenderer?.content?.transcriptSearchPanelRenderer
-      ?.body?.transcriptSegmentListRenderer?.initialSegments;
-    
-    if (!segments) {
-      // Try alternative path
-      segments = data?.actions?.[0]?.appendContinuationItemsAction?.continuationItems;
-    }
-    
-    if (!segments || !Array.isArray(segments)) {
-      throw new Error('No transcript segments in Innertube response');
-    }
-    
-    const lines = segments
-      .map(seg => {
-        const snippetRuns = seg?.transcriptSegmentRenderer?.snippet?.runs;
-        if (Array.isArray(snippetRuns)) {
-          return snippetRuns.map(run => run?.text || '').join('');
-        }
-
-        const headerRuns = seg?.transcriptSectionHeaderRenderer?.snippet?.runs;
-        if (Array.isArray(headerRuns)) {
-          return headerRuns.map(run => run?.text || '').join('');
-        }
-
-        return '';
-      })
+    const lines = collectTranscriptLines(data)
       .map(text => text ? text.replace(/\s+/g, ' ').trim() : '')
       .filter(text => text.length > 0);
 
@@ -654,6 +640,26 @@
     }
     
     return lines.join('\n').trim();
+  }
+
+  function collectTranscriptLines(source, lines = []) {
+    if (!source || typeof source !== 'object') {
+      return lines;
+    }
+
+    const segmentRenderer = source.transcriptSegmentRenderer ||
+      source.transcriptSectionHeaderRenderer;
+
+    const runs = segmentRenderer?.snippet?.runs;
+    if (Array.isArray(runs)) {
+      lines.push(runs.map(run => run?.text || '').join(''));
+    }
+
+    for (const value of Object.values(source)) {
+      collectTranscriptLines(value, lines);
+    }
+
+    return lines;
   }
   
   async function extractFromTimedText(videoId) {
@@ -962,7 +968,32 @@
       }
     }
 
-    console.warn('No playerResponse found in script tags');
+    console.debug('No playerResponse found in page data');
+    return null;
+  }
+
+  async function getInitialData() {
+    if (cachedInitialData) {
+      return cachedInitialData;
+    }
+
+    const scripts = document.querySelectorAll('script');
+
+    for (const script of scripts) {
+      const text = script.textContent;
+      if (!text || !text.includes('ytInitialData')) {
+        continue;
+      }
+
+      const jsonText = extractJsonBlock(text, 'ytInitialData');
+      const parsed = tryParseJson(jsonText);
+      if (parsed) {
+        cachedInitialData = parsed;
+        return cachedInitialData;
+      }
+    }
+
+    console.debug('No ytInitialData found in page data');
     return null;
   }
   

@@ -36,6 +36,8 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 
 - YouTube page data can contain nested JSON with braces inside strings.
 - Keep script-data parsing string-aware. Do not count braces inside quoted strings as JSON boundaries.
+- Some videos expose transcript request data in `ytInitialData` instead of `playerResponse`.
+- Search page data for transcript params by shape, not by one fixed path.
 
 ## Collaboration Preferences
 

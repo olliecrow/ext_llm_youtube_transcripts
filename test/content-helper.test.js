@@ -7,8 +7,11 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    collectTranscriptLines,
     extractJsonBlock,
+    extractTextFromInnertube,
     extractVideoId,
+    findTranscriptParams,
     normalizeVideoId,
     sanitizeFilename
   };
@@ -94,4 +97,105 @@ test('extracts JSON blocks that contain braces inside strings', () => {
     title: 'a } tricky title',
     nested: { text: 'brace { here' }
   });
+});
+
+test('finds transcript params in current YouTube page data shape', () => {
+  const data = {
+    engagementPanels: [
+      {
+        engagementPanelSectionListRenderer: {
+          content: {
+            continuationItemRenderer: {
+              continuationEndpoint: {
+                getTranscriptEndpoint: {
+                  params: 'transcript-param-token'
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  };
+
+  assert.equal(context.window.__testHooks.findTranscriptParams(data), 'transcript-param-token');
+});
+
+test('finds transcript params in older player response shape', () => {
+  const data = {
+    engagementPanels: [
+      {
+        engagementPanelSectionListRenderer: {
+          content: {
+            structuredDescriptionContentRenderer: {
+              items: [
+                {
+                  videoDescriptionTranscriptSectionRenderer: {
+                    openTranscriptCommand: {
+                      serializedShareEntity: 'older-transcript-param-token'
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  };
+
+  assert.equal(context.window.__testHooks.findTranscriptParams(data), 'older-transcript-param-token');
+});
+
+test('extracts transcript lines from nested Innertube response data', () => {
+  const data = {
+    actions: [
+      {
+        updateEngagementPanelAction: {
+          content: {
+            transcriptRenderer: {
+              content: {
+                transcriptSearchPanelRenderer: {
+                  body: {
+                    transcriptSegmentListRenderer: {
+                      initialSegments: [
+                        {
+                          transcriptSegmentRenderer: {
+                            snippet: {
+                              runs: [{ text: 'first ' }, { text: 'line' }]
+                            }
+                          }
+                        },
+                        {
+                          transcriptSectionHeaderRenderer: {
+                            snippet: {
+                              runs: [{ text: 'section' }]
+                            }
+                          }
+                        },
+                        {
+                          wrapper: {
+                            transcriptSegmentRenderer: {
+                              snippet: {
+                                runs: [{ text: 'second line' }]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  };
+
+  assert.equal(
+    context.window.__testHooks.extractTextFromInnertube(data),
+    'first line\nsection\nsecond line'
+  );
 });
