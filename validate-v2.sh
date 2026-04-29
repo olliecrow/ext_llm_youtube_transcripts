@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=== YouTube Transcript Copier - Final Validation ==="
+echo "=== YouTube Transcript Copier Validation ==="
 echo ""
 
 echo "1. File Structure Check:"
@@ -42,18 +43,24 @@ grep '"default_popup"' manifest.json > /dev/null && echo "  ✗ Popup still conf
 
 echo ""
 echo "5. JavaScript Validation:"
-node -c background.js 2>&1 > /dev/null && echo "  ✓ background.js is valid" || echo "  ✗ background.js has errors"
-node -c content.js 2>&1 > /dev/null && echo "  ✓ content.js is valid" || echo "  ✗ content.js has errors"
+node -c background.js
+echo "  ✓ background.js is valid"
+node -c content.js
+echo "  ✓ content.js is valid"
 
 echo ""
-echo "6. Size Check:"
+echo "6. Unit Tests:"
+node --test test/*.test.js
+
+echo ""
+echo "7. Size Check:"
 total_size=$(du -sh . | cut -f1)
 echo "  Total extension size: $total_size"
 
 echo ""
 echo "=== Extension Ready for Testing ==="
 echo ""
-echo "📝 How to test the new v2.0 features:"
+echo "How to test the extension in Chrome:"
 echo ""
 echo "1. RELOAD THE EXTENSION:"
 echo "   - Open chrome://extensions/"

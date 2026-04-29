@@ -295,37 +295,50 @@
     if (!url) {
       url = window.location.href;
     }
-    
-    // Try multiple patterns in order of likelihood
-    const patterns = [
-      // Standard watch URL: youtube.com/watch?v=VIDEO_ID
-      /[?&]v=([^&]+)/,
-      // Short URL: youtu.be/VIDEO_ID
-      /youtu\.be\/([^?]+)/,
-      // Shorts URL: youtube.com/shorts/VIDEO_ID
-      /shorts\/([^?]+)/,
-      // Embed URL: youtube.com/embed/VIDEO_ID
-      /embed\/([^?]+)/
-    ];
-    
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match && match[1]) {
-        return match[1];
+
+    try {
+      const parsedUrl = new URL(url, window.location.origin);
+      const hostname = parsedUrl.hostname.replace(/^www\./, '');
+      const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+
+      if (hostname === 'youtu.be') {
+        return normalizeVideoId(pathParts[0]);
       }
+
+      if (hostname === 'youtube.com' || hostname === 'm.youtube.com') {
+        if (parsedUrl.pathname === '/watch') {
+          return normalizeVideoId(parsedUrl.searchParams.get('v'));
+        }
+
+        if (pathParts[0] === 'shorts' || pathParts[0] === 'embed') {
+          return normalizeVideoId(pathParts[1]);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to parse video URL:', error);
     }
     
     // Fallback: Try to get from page's player data
     try {
       const playerData = document.querySelector('ytd-watch-flexy')?.__data;
-      if (playerData?.watchEndpoint?.videoId) {
-        return playerData.watchEndpoint.videoId;
+      const playerVideoId = normalizeVideoId(playerData?.watchEndpoint?.videoId);
+      if (playerVideoId) {
+        return playerVideoId;
       }
     } catch (e) {
       console.warn('Failed to extract video ID from player data:', e);
     }
     
     return null;
+  }
+
+  function normalizeVideoId(value) {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return /^[A-Za-z0-9_-]{11}$/.test(trimmed) ? trimmed : null;
   }
 
   function isYouTubeShorts() {

@@ -79,7 +79,9 @@ The manifest requests only these permissions.
 - `scripting`, to inject content script during extraction
 - `contextMenus`, to power right click menu actions
 
-No storage, network, or broad host permissions are required beyond YouTube pages.
+Host permissions are limited to the YouTube hosts `www.youtube.com`, `m.youtube.com`, and `youtu.be`.
+The extension only starts extraction for supported video URLs on those hosts.
+No storage permission is used.
 
 ## Quick test checklist
 
@@ -95,6 +97,7 @@ Suggested flow.
 2. Open all sample videos and run batch export.
 3. Verify downloaded files include metadata and multiline transcripts.
 4. Spot check clipboard output for formatting.
+5. Run `./validate-v2.sh` before committing code changes.
 
 ## Documentation map
 
