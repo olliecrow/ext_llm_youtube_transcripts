@@ -83,3 +83,16 @@ Enforcement:
 Keep tests for JSON blocks with braces inside strings. Run `./validate-v2.sh` after parser changes.
 References:
 `content.js`, `test/content-helper.test.js`, `validate-v2.sh`
+
+Decision:
+Find transcript params in `ytInitialData` before falling back to `playerResponse`.
+Context:
+Some watch pages expose transcript request params under the page's engagement panels in `ytInitialData`, while `playerResponse` is missing or not useful for transcript lookup.
+Rationale:
+The transcript API can still work when `playerResponse` is absent. Finding params by object shape keeps the extension working across both current and older page data shapes.
+Trade-offs:
+The recursive search is broader than one hardcoded path, so tests must keep it focused on transcript endpoint and transcript section shapes.
+Enforcement:
+Keep tests for current `getTranscriptEndpoint.params` data and older `serializedShareEntity` data. Run `./validate-v2.sh` after transcript extraction changes.
+References:
+`content.js`, `test/content-helper.test.js`, `validate-v2.sh`
