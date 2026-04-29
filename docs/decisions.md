@@ -96,3 +96,16 @@ Enforcement:
 Keep tests for current `getTranscriptEndpoint.params` data and older `serializedShareEntity` data. Run `./validate-v2.sh` after transcript extraction changes.
 References:
 `content.js`, `test/content-helper.test.js`, `validate-v2.sh`
+
+Decision:
+Use visible transcript text as the last extraction fallback.
+Context:
+Some YouTube pages show the transcript panel in the page, but the caption URL can return an empty body and the transcript API can return `400`.
+Rationale:
+When the transcript is visibly present, reading the visible transcript text is the simplest reliable fallback. It avoids failing only because YouTube's hidden data calls changed.
+Trade-offs:
+Visible text parsing is less structured than API data. Keep it as the last fallback, and stop at clear page markers so side-bar video text is not included.
+Enforcement:
+Keep tests for visible transcript rows with YouTube's current timestamp text, including rows where the timestamp and words are joined with no space. Run `./validate-v2.sh` after transcript extraction changes.
+References:
+`content.js`, `test/content-helper.test.js`, `validate-v2.sh`

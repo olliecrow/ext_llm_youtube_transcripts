@@ -39,6 +39,8 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 - Keep script-data parsing string-aware. Do not count braces inside quoted strings as JSON boundaries.
 - Some videos expose transcript request data in `ytInitialData` instead of `playerResponse`.
 - Search page data for transcript params by shape, not by one fixed path.
+- If the transcript is visible on the page but YouTube data calls fail, use visible transcript text as a last fallback.
+- Keep visible transcript parsing tested for timestamp text with and without spaces before the spoken words.
 
 ## Collaboration Preferences
 
