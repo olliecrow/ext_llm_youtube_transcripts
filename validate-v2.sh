@@ -40,6 +40,12 @@ version=$(grep '"version"' manifest.json | cut -d'"' -f4)
 echo "  Version: $version"
 grep '"contextMenus"' manifest.json > /dev/null && echo "  ✓ contextMenus permission added" || echo "  ✗ contextMenus permission missing"
 grep '"default_popup"' manifest.json > /dev/null && echo "  ✗ Popup still configured (should be removed)" || echo "  ✓ No popup configured"
+for host in 'https://youtube.com/*' 'https://www.youtube.com/*' 'https://m.youtube.com/*' 'https://youtu.be/*'; do
+  grep -F "\"$host\"" manifest.json > /dev/null && echo "  ✓ $host host permission present" || {
+    echo "  ✗ $host host permission missing"
+    exit 1
+  }
+done
 
 echo ""
 echo "5. JavaScript Validation:"
