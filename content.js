@@ -865,8 +865,31 @@
     }
 
     let depth = 0;
+    let inString = false;
+    let escaped = false;
+
     for (let i = startIndex; i < source.length; i++) {
       const char = source[i];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = inString;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
       if (char === '{') {
         depth++;
       } else if (char === '}') {

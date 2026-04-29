@@ -32,6 +32,11 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 - Supported video URLs are standard watch pages, Shorts, embeds, mobile YouTube watch pages, and `youtu.be` short links with a valid 11-character video id.
 - Do not widen URL matching with simple text checks like `includes('youtube.com')`; parse the URL and check the host and video id.
 
+## Page Data Parsing
+
+- YouTube page data can contain nested JSON with braces inside strings.
+- Keep script-data parsing string-aware. Do not count braces inside quoted strings as JSON boundaries.
+
 ## Collaboration Preferences
 
 - Preserve accurate author and committer attribution for each contributor.

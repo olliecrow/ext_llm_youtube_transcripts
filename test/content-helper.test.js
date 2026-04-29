@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    extractJsonBlock,
     extractVideoId,
     normalizeVideoId,
     sanitizeFilename
@@ -83,4 +84,14 @@ test('keeps filenames usable on common file systems', () => {
   assert.equal(context.window.__testHooks.sanitizeFilename(' A bad:/title?* '), 'A-bad-title');
   assert.equal(context.window.__testHooks.sanitizeFilename('CON'), 'CON_');
   assert.equal(context.window.__testHooks.sanitizeFilename(''), 'youtube-transcript');
+});
+
+test('extracts JSON blocks that contain braces inside strings', () => {
+  const source = 'var ytInitialPlayerResponse = {"title":"a } tricky title","nested":{"text":"brace { here"}}; next();';
+  const json = context.window.__testHooks.extractJsonBlock(source, 'ytInitialPlayerResponse');
+
+  assert.deepEqual(JSON.parse(json), {
+    title: 'a } tricky title',
+    nested: { text: 'brace { here' }
+  });
 });
