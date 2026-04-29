@@ -8,8 +8,11 @@ const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
     collectTranscriptLines,
+    cleanTranscriptLine,
     extractJsonBlock,
     extractTextFromInnertube,
+    extractTextFromDomSegments,
+    extractTranscriptFromVisibleText,
     extractVideoId,
     findTranscriptParams,
     normalizeVideoId,
@@ -199,4 +202,41 @@ test('extracts transcript lines from nested Innertube response data', () => {
     context.window.__testHooks.extractTextFromInnertube(data),
     'first line\nsection\nsecond line'
   );
+});
+
+test('cleans YouTube transcript timestamps from visible rows', () => {
+  const rows = [
+    '0:00My number one bullet point is this',
+    '1 minute, 5 secondsthe difference between being an investor and a trader',
+    '1 hour, 2 minutes, 43 secondsGod, family, friends.'
+  ];
+
+  assert.deepEqual(context.window.__testHooks.extractTextFromDomSegments(rows), [
+    'My number one bullet point is this',
+    'the difference between being an investor and a trader',
+    'God, family, friends.'
+  ]);
+});
+
+test('extracts visible transcript text when YouTube page data calls fail', () => {
+  const visibleText = [
+    'Legendary Trader Paul Tudor Jones on AI Risk, Bubbles and Buffett',
+    'Chapters',
+    'Transcript',
+    'Search transcript',
+    'Search transcript',
+    'Chapter 1: Intro',
+    '0:00My number one bullet point is you are going to make your money by riding a trend.',
+    '0:077 secondsyou can be like Warren Buffett.',
+    'Chapter 2: The Kindest Thing (first)',
+    '1:051 minute, 5 secondsthe difference between being an investor and being a trader.',
+    'All',
+    'From Invest Like The Best'
+  ].join('\n');
+
+  assert.deepEqual(Array.from(context.window.__testHooks.extractTranscriptFromVisibleText(visibleText)), [
+    'My number one bullet point is you are going to make your money by riding a trend.',
+    'you can be like Warren Buffett.',
+    'the difference between being an investor and being a trader.'
+  ]);
 });

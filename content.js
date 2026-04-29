@@ -485,7 +485,17 @@
         throw new Error(`Caption fetch failed: ${response.status}`);
       }
       
-      const data = await response.json();
+      const rawText = await response.text();
+      if (!rawText.trim()) {
+        throw new Error('Caption response was empty');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (error) {
+        throw new Error('Caption response was not valid JSON');
+      }
       
       // Extract and flatten transcript text
       const transcript = extractTextFromJson3(data);
@@ -733,6 +743,14 @@
     try {
       let transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]');
       let panelOpened = false;
+      const visibleTranscriptLines = extractTranscriptFromVisibleText(document.body?.innerText || '');
+
+      if (!transcriptPanel && visibleTranscriptLines.length > 0) {
+        return {
+          transcript: visibleTranscriptLines.join('\n').trim(),
+          source: 'visibleText'
+        };
+      }
 
       if (!transcriptPanel) {
         const moreActionsButton = document.querySelector('button[aria-label*="More actions" i], #button-shape button[aria-label*="More" i]');
@@ -753,15 +771,14 @@
       }
 
       const segmentContainer = transcriptPanel || document;
-      const segmentNodes = segmentContainer.querySelectorAll('ytd-transcript-segment-renderer, yt-formatted-string.ytd-transcript-segment-renderer');
+      const segmentNodes = segmentContainer.querySelectorAll([
+        'ytd-transcript-segment-renderer',
+        'yt-formatted-string.ytd-transcript-segment-renderer'
+      ].join(', '));
 
-      if (segmentNodes.length === 0) {
-        throw new Error('No transcript segments found in DOM');
-      }
-
-      const lines = Array.from(segmentNodes)
-        .map(segment => segment.textContent ? segment.textContent.replace(/\s+/g, ' ').trim() : '')
-        .filter(text => text.length > 0);
+      const lines = segmentNodes.length > 0
+        ? extractTextFromDomSegments(Array.from(segmentNodes).map(segment => segment.textContent || ''))
+        : extractTranscriptFromVisibleText(document.body?.innerText || '');
 
       if (lines.length === 0) {
         throw new Error('No text extracted from DOM segments');
@@ -782,6 +799,58 @@
       console.warn('DOM extraction failed:', error);
       throw error;
     }
+  }
+
+  function extractTextFromDomSegments(segmentTexts) {
+    return segmentTexts
+      .map(cleanTranscriptLine)
+      .filter(text => text.length > 0);
+  }
+
+  function extractTranscriptFromVisibleText(text) {
+    if (typeof text !== 'string' || !text.includes('Transcript')) {
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    const transcriptStart = lines.findIndex((line, index) => {
+      const nextLine = lines[index + 1] || '';
+      return line === 'Transcript' && nextLine.toLowerCase().includes('search transcript');
+    });
+
+    if (transcriptStart === -1) {
+      return [];
+    }
+
+    const transcriptLines = [];
+    for (const line of lines.slice(transcriptStart + 1)) {
+      if (/^(All|Related|For you|Recently uploaded|From .+)$/i.test(line)) {
+        break;
+      }
+
+      const cleaned = cleanTranscriptLine(line);
+      if (cleaned && !/^search transcript$/i.test(cleaned) && !/^chapter \d+:/i.test(cleaned)) {
+        transcriptLines.push(cleaned);
+      }
+    }
+
+    return transcriptLines;
+  }
+
+  function cleanTranscriptLine(text) {
+    if (typeof text !== 'string') {
+      return '';
+    }
+
+    return text
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/i, '')
+      .replace(/^(?:\d+\s+hour[s]?,\s*)?(?:\d+\s+minute[s]?,\s*)?\d+\s+second[s]?\s*/i, '')
+      .trim();
   }
   
   async function waitForElement(selector, timeout = 5000) {
