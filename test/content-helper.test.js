@@ -59,6 +59,7 @@ vm.runInContext(contentScript, context);
 test('extracts video ids from supported URL forms', () => {
   const cases = [
     ['https://www.youtube.com/watch?v=kxpbdFMgPJ4', 'kxpbdFMgPJ4'],
+    ['https://youtube.com/watch?v=kxpbdFMgPJ4', 'kxpbdFMgPJ4'],
     ['https://m.youtube.com/watch?v=kxpbdFMgPJ4&feature=share', 'kxpbdFMgPJ4'],
     ['https://www.youtube.com/shorts/kxpbdFMgPJ4?feature=share', 'kxpbdFMgPJ4'],
     ['https://www.youtube.com/embed/kxpbdFMgPJ4', 'kxpbdFMgPJ4'],
