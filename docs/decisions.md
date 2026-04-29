@@ -57,3 +57,16 @@ Enforcement:
 `AGENTS.md` and any repo docs, remotes, automation, release, or publishing steps that need the owning GitHub account should point to `olliecrow` unless Ollie explicitly changes that ownership decision.
 References:
 `AGENTS.md`
+
+Decision:
+Use parsed, tested URL checks for YouTube video pages.
+Context:
+The extension acts on all open YouTube tabs during batch export. Loose text checks can miss real short links, include non-video pages, or match non-YouTube hosts that only contain YouTube text in the URL.
+Rationale:
+Parsing URLs and checking the host plus the 11-character video id keeps batch export focused on real supported video pages.
+Trade-offs:
+The extension will reject malformed or unusual URLs instead of trying to guess. That is clearer and safer than starting extraction on pages that cannot work.
+Enforcement:
+Use the shared background URL check for tab selection. Keep helper tests for watch, Shorts, embeds, mobile watch pages, and `youtu.be` links. Run `./validate-v2.sh` after URL handling changes.
+References:
+`background.js`, `content.js`, `test/background-url.test.js`, `test/content-helper.test.js`, `validate-v2.sh`

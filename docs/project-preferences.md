@@ -22,7 +22,15 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 ## Verification Expectations
 
 - Run `./validate-v2.sh` after meaningful script changes.
-- Validate syntax for `background.js` and `content.js` and run manual browser smoke checks for copy/export actions.
+- Keep `./validate-v2.sh` as the main local check. It should cover JavaScript syntax and unit tests.
+- Run manual browser smoke checks for copy/export actions when browser access is available.
+- If a third-party page blocks testing with a consent screen or similar prompt, do not click through without clear approval. Record that browser testing was blocked.
+
+## URL Support
+
+- Keep URL support explicit and tested.
+- Supported video URLs are standard watch pages, Shorts, embeds, mobile YouTube watch pages, and `youtu.be` short links with a valid 11-character video id.
+- Do not widen URL matching with simple text checks like `includes('youtube.com')`; parse the URL and check the host and video id.
 
 ## Collaboration Preferences
 

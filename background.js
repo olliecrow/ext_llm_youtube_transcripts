@@ -60,8 +60,7 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
     return false;
   }
 
-  const isYouTube = tab.url.includes('youtube.com') || tab.url.includes('youtu.be');
-  if (!isYouTube) {
+  if (!isSupportedYouTubeVideoUrl(tab.url)) {
     showBadge(tabId, '!', '#FF0000');
     setTimeout(() => clearBadge(tabId), 3000);
     return false;
@@ -210,11 +209,7 @@ async function exportAllYouTubeTabs() {
   try {
     // Query all tabs to find YouTube tabs
     const tabs = await chrome.tabs.query({});
-    const youtubeTabs = tabs.filter(tab => 
-      tab.url && (tab.url.includes('youtube.com/watch') || 
-                  tab.url.includes('youtube.com/shorts') || 
-                  tab.url.includes('youtu.be/'))
-    );
+    const youtubeTabs = tabs.filter(tab => isSupportedYouTubeVideoUrl(tab.url));
     
     if (youtubeTabs.length === 0) {
       // No YouTube tabs found - show error on current tab if possible
@@ -301,6 +296,8 @@ async function exportAllYouTubeTabs() {
         } catch (messageError) {
           if (messageError.message.includes('No tab with id')) {
             console.log(`Tab ${tab.id} closed during processing, skipping`);
+            rejectPendingExtraction(tab.id, messageError);
+            await extractionPromise.catch(() => {});
             activeOperations.delete(tab.id);
             failCount++;
             continue;
@@ -392,6 +389,41 @@ function rejectPendingExtraction(tabId, error) {
     const rejectionReason = error instanceof Error ? error : new Error(String(error));
     reject(rejectionReason);
   }
+}
+
+function isSupportedYouTubeVideoUrl(tabUrl) {
+  if (!tabUrl) {
+    return false;
+  }
+
+  try {
+    const url = new URL(tabUrl);
+    const hostname = url.hostname.replace(/^www\./, '');
+
+    if (hostname === 'youtu.be') {
+      return hasYouTubeVideoId(url.pathname.split('/').filter(Boolean)[0]);
+    }
+
+    if (hostname !== 'youtube.com' && hostname !== 'm.youtube.com') {
+      return false;
+    }
+
+    if (url.pathname === '/watch') {
+      return hasYouTubeVideoId(url.searchParams.get('v'));
+    }
+
+    if (url.pathname.startsWith('/shorts/') || url.pathname.startsWith('/embed/')) {
+      return hasYouTubeVideoId(url.pathname.split('/').filter(Boolean)[1]);
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+function hasYouTubeVideoId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
 // Helper function to wait for extraction to complete

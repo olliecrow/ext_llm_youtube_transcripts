@@ -16,7 +16,8 @@
   
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://www.youtu.be/*"
+    "https://m.youtube.com/*",
+    "https://youtu.be/*"
   ],
   
   "background": {
