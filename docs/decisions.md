@@ -70,3 +70,16 @@ Enforcement:
 Use the shared background URL check for tab selection. Keep helper tests for watch, Shorts, embeds, mobile watch pages, and `youtu.be` links. Run `./validate-v2.sh` after URL handling changes.
 References:
 `background.js`, `content.js`, `test/background-url.test.js`, `test/content-helper.test.js`, `validate-v2.sh`
+
+Decision:
+Keep YouTube script-data parsing string-aware.
+Context:
+YouTube embeds player data in large script blocks. Those JSON blocks can contain braces inside quoted text, such as video titles or descriptions.
+Rationale:
+Counting every `{` and `}` breaks when braces appear inside strings. Tracking quoted strings and escaped characters keeps parser boundaries correct without adding a dependency.
+Trade-offs:
+The parser remains small and local, but it still only handles the script-data shape this extension needs.
+Enforcement:
+Keep tests for JSON blocks with braces inside strings. Run `./validate-v2.sh` after parser changes.
+References:
+`content.js`, `test/content-helper.test.js`, `validate-v2.sh`
