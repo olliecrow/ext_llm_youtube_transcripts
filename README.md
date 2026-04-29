@@ -79,7 +79,7 @@ The manifest requests only these permissions.
 - `scripting`, to inject content script during extraction
 - `contextMenus`, to power right click menu actions
 
-Host permissions are limited to the YouTube hosts `www.youtube.com`, `m.youtube.com`, and `youtu.be`.
+Host permissions are limited to the YouTube hosts `youtube.com`, `www.youtube.com`, `m.youtube.com`, and `youtu.be`.
 The extension only starts extraction for supported video URLs on those hosts.
 No storage permission is used.
 

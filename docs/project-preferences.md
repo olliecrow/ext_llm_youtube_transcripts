@@ -30,6 +30,7 @@ These preferences define how `ext_llm_youtube_transcripts` should be maintained 
 
 - Keep URL support explicit and tested.
 - Supported video URLs are standard watch pages, Shorts, embeds, mobile YouTube watch pages, and `youtu.be` short links with a valid 11-character video id.
+- Keep manifest host permissions aligned with supported URL hosts, including plain `youtube.com` without `www`.
 - Do not widen URL matching with simple text checks like `includes('youtube.com')`; parse the URL and check the host and video id.
 
 ## Page Data Parsing
