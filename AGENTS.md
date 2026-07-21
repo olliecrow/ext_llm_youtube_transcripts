@@ -1,15 +1,20 @@
-# Repository Guidelines
+# YouTube Transcript Copier repository guidance
 
-## Repository Ownership
-- This repository belongs under the personal GitHub account `olliecrow`.
-- Do not move it to a GitHub organization or a different personal account unless Ollie explicitly asks for that change.
-- When docs, remotes, automation, releases, or publishing steps need the owning GitHub account, use `olliecrow`.
+## Purpose and layout
 
-## Plain English Default
-- Use plain English in chat, session replies, docs, notes, comments, reports, commit messages, issue text, and review text.
-- Prefer short words, short sentences, and direct statements.
-- If a technical term is needed for correctness, explain it in simple words the first time.
-- In code, prefer clear descriptive names for files, folders, flags, config keys, functions, classes, types, variables, tests, and examples.
-- Avoid vague names, short cryptic names, and cute internal code names unless an old established name is already clearer than changing it.
-- When touching old code, rename confusing names if the change is low risk and clearly improves readability.
-- Keep the durable why for this rule in `docs/decisions.md`.
+- This public Manifest V3 Chrome extension exports transcripts from supported YouTube tabs as Markdown or clipboard text.
+- `background.js` owns tab selection, context menus, progress, and downloads. `content.js` owns page-data and visible-transcript extraction. Tests live under `test/`; `manifest.json` is the permission contract.
+
+## Product contracts
+
+- Support standard watch, Shorts, embed, mobile watch, and `youtu.be` URLs only when they contain a valid 11-character video ID. Parse URLs and validate exact hosts; never use loose substring matching.
+- Keep manifest host permissions aligned with the supported YouTube hosts, including bare `youtube.com`. Do not widen permissions without a concrete extraction need.
+- Parse embedded YouTube JSON with string- and escape-aware boundaries. Search transcript parameters by shape across `ytInitialData` and `playerResponse`, not one brittle fixed path.
+- Use visible transcript rows only as the last fallback when data calls fail. Preserve the tested timestamp variants and stop boundaries that prevent sidebar text from leaking into output.
+- Preserve one-click batch export, context-menu single export/copy, local-only processing, per-video Markdown files, and metadata formatting unless an intentional user-visible change updates `README.md`.
+
+## Development
+
+- Run `./validate-v2.sh` after JavaScript, manifest, URL, parser, or extraction changes; it is the canonical syntax and unit-test check.
+- Run a manual Chrome smoke test for affected batch, export, clipboard, badge, and tab-activation behavior when browser access is available.
+- Keep `README.md` current for behavior, permissions, supported URLs, and manual verification.

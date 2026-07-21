@@ -98,24 +98,3 @@ Suggested flow.
 3. Verify downloaded files include metadata and multiline transcripts.
 4. Spot check clipboard output for formatting.
 5. Run `./validate-v2.sh` before committing code changes.
-
-## Documentation map
-
-- `README.md`: human-facing project overview and usage
-- `docs/README.md`: docs index and routing
-- `docs/project-preferences.md`: durable maintenance and verification preferences
-
-## Third-Party Dependency Trust Policy
-- Prefer official packages, libraries, SDKs, frameworks, and services from authoritative sources.
-- Prefer options that are reputable, well-maintained, popular, and well-supported.
-- Before adopting or upgrading third-party dependencies, verify ownership/publisher authenticity, maintenance activity, security history, license fit, and ecosystem adoption.
-- Avoid low-trust, obscure, or weakly maintained dependencies when a stronger alternative exists.
-- Pin versions and keep lockfiles current for reproducibility and supply-chain safety.
-- If trust signals are unclear, do not adopt the dependency until explicitly approved.
-
-<!-- third-party-policy:start -->
-## Third-Party Code Policy
-This repository allows external-code snapshots for static analysis only. External clones must stay in ephemeral `plan/` locations, be sanitized immediately (`rm -rf .git`, or remove all remotes first if `.git` is temporarily retained), and must never be executed.
-
-See `docs/untrusted-third-party-repos.md`.
-<!-- third-party-policy:end -->
