@@ -15,6 +15,6 @@
 
 ## Development
 
-- Run `./validate-v2.sh` after JavaScript, manifest, URL, parser, or extraction changes; it is the canonical syntax and unit-test check.
+- Run `./validate.sh` after JavaScript, manifest, URL, parser, extraction, or icon changes; it is the canonical automated check.
 - Run a manual Chrome smoke test for affected batch, export, clipboard, badge, and tab-activation behavior when browser access is available.
 - Keep `README.md` current for behavior, permissions, supported URLs, and manual verification.

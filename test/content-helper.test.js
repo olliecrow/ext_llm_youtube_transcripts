@@ -78,8 +78,15 @@ test('rejects missing or malformed video ids', () => {
   const cases = [
     'https://www.youtube.com/watch?v=not-a-video-id',
     'https://www.youtube.com/results?search_query=test',
+    'http://www.youtube.com/watch?v=kxpbdFMgPJ4',
+    'https://www.youtube.com/watch?v=%20kxpbdFMgPJ4%20',
+    'https://www.m.youtube.com/watch?v=kxpbdFMgPJ4',
+    'https://music.youtube.com/watch?v=kxpbdFMgPJ4',
     'https://youtu.be/',
-    'https://youtu.be/not-a-video-id'
+    'https://youtu.be/not-a-video-id',
+    'https://youtu.be/kxpbdFMgPJ4/extra',
+    'https://www.youtube.com/shorts/kxpbdFMgPJ4/extra',
+    'https://www.youtube.com/embed/kxpbdFMgPJ4/extra'
   ];
 
   for (const url of cases) {

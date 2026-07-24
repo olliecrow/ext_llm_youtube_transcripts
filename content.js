@@ -15,109 +15,7 @@
   let cachedYouTubeConfig = null;
   let cachedInitialData = null;
 
-  // Network timeout configuration
-  const NETWORK_TIMEOUT_MS = 30000; // 30 seconds
-  
-  // Rate limiting to prevent YouTube blocking
-  class RateLimiter {
-    constructor(maxRequests = 10, windowMs = 1000) {
-      this.maxRequests = maxRequests;
-      this.windowMs = windowMs;
-      this.queue = [];
-      this.processing = false;
-      this.requestTimes = [];
-    }
-    
-    async execute(fn, priority = 'normal') {
-      return new Promise((resolve, reject) => {
-        // Prevent memory exhaustion with simple queue bound
-        if (this.queue.length > 100) {
-          reject(new Error('Rate limiter queue full - too many concurrent requests'));
-          return;
-        }
-        
-        const request = { fn, resolve, reject, priority, timestamp: Date.now() };
-        
-        // Add to queue based on priority
-        if (priority === 'high') {
-          this.queue.unshift(request);
-        } else {
-          this.queue.push(request);
-        }
-        
-        this.process();
-      });
-    }
-    
-    async process() {
-      if (this.processing || this.queue.length === 0) return;
-      this.processing = true;
-      
-      // Remove old request times outside window
-      const now = Date.now();
-      this.requestTimes = this.requestTimes.filter(time => now - time < this.windowMs);
-      
-      // Check if we can make a request
-      if (this.requestTimes.length >= this.maxRequests) {
-        // Wait until window allows
-        const oldestRequest = this.requestTimes[0];
-        const waitTime = this.windowMs - (now - oldestRequest);
-        
-        // Add random jitter (0-500ms) to prevent thundering herd
-        const jitter = Math.random() * 500;
-        setTimeout(() => {
-          this.processing = false;
-          this.process();
-        }, waitTime + jitter);
-        return;
-      }
-      
-      // Execute next request
-      const request = this.queue.shift();
-      this.requestTimes.push(now);
-      
-      // Persist state
-      
-      try {
-        const result = await request.fn();
-        request.resolve(result);
-      } catch (error) {
-        // Check for rate limit error
-        if (error.status === 429 || error.message?.includes('Too Many Requests')) {
-          // Exponential backoff
-          const backoffMs = Math.min(60000, this.windowMs * Math.pow(2, this.requestTimes.length));
-          console.warn(`Rate limited, backing off for ${backoffMs}ms`);
-          
-          // Put request back in queue
-          this.queue.unshift(request);
-          
-          setTimeout(() => {
-            this.processing = false;
-            this.process();
-          }, backoffMs);
-          return;
-        }
-        request.reject(error);
-      }
-      
-      // Continue processing
-      setTimeout(() => {
-        this.processing = false;
-        this.process();
-      }, 100); // Small delay between requests
-    }
-    
-    clear() {
-      this.queue = [];
-      this.requestTimes = [];
-      this.processing = false;
-    }
-  }
-  
-  // Global rate limiter instance
-  const rateLimiter = new RateLimiter(10, 1000); // 10 requests per second
-  
-  // Rate limiter is session-based (no persistence needed)
+  const NETWORK_TIMEOUT_MS = 30000;
   
   // Custom error class
   class ExtensionError extends Error {
@@ -128,27 +26,24 @@
     }
   }
   
-  // Helper function to create fetch with timeout and rate limiting
+  // Fetch from YouTube with a bounded wait.
   async function fetchWithTimeout(url, options = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
-    return rateLimiter.execute(async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      
-      try {
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        return response;
-      } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          throw new ExtensionError(`Network request timed out after ${timeoutMs/1000} seconds`, 'NETWORK_TIMEOUT');
-        }
-        throw error;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new ExtensionError(`Network request timed out after ${timeoutMs / 1000} seconds`, 'NETWORK_TIMEOUT');
       }
-    }, options.priority || 'normal');
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
   
   // Accessibility: Screen reader announcements
@@ -185,7 +80,7 @@
   // Listen for extraction command - this stays active
   chrome.runtime.onMessage.addListener(handleContentMessage);
   
-  async function handleContentMessage(message, sender, sendResponse) {
+  function handleContentMessage(message) {
     if (message.type === 'START_EXTRACTION') {
       // Check if extraction is already running
       if (extractionInProgress) {
@@ -200,7 +95,7 @@
         return;
       }
       const mode = message.mode || 'markdown';
-      await performExtraction(mode);
+      void performExtraction(mode);
     }
   }
   
@@ -214,10 +109,6 @@
 
     announceToScreenReader('Starting transcript extraction', 'polite');
 
-    if (rateLimiter.queue.length > 5) {
-      announceToScreenReader('Multiple requests queued, please wait', 'polite');
-    }
-
     try {
       const videoId = extractVideoId();
       if (!videoId) {
@@ -226,7 +117,7 @@
 
       announceToScreenReader('Video found, extracting transcript', 'polite');
 
-      const metadata = await extractMetadata(videoId);
+      const metadata = await extractMetadata();
 
       const transcript = await extractTranscript(videoId);
       if (!transcript) {
@@ -300,19 +191,26 @@
 
     try {
       const parsedUrl = new URL(url, window.location.origin);
-      const hostname = parsedUrl.hostname.replace(/^www\./, '');
+      const hostname = parsedUrl.hostname;
       const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
 
-      if (hostname === 'youtu.be') {
-        return normalizeVideoId(pathParts[0]);
+      if (parsedUrl.protocol !== 'https:') {
+        return null;
       }
 
-      if (hostname === 'youtube.com' || hostname === 'm.youtube.com') {
+      if (hostname === 'youtu.be') {
+        return pathParts.length === 1 ? normalizeVideoId(pathParts[0]) : null;
+      }
+
+      if (hostname === 'youtube.com' ||
+          hostname === 'www.youtube.com' ||
+          hostname === 'm.youtube.com') {
         if (parsedUrl.pathname === '/watch') {
           return normalizeVideoId(parsedUrl.searchParams.get('v'));
         }
 
-        if (pathParts[0] === 'shorts' || pathParts[0] === 'embed') {
+        if (pathParts.length === 2 &&
+            (pathParts[0] === 'shorts' || pathParts[0] === 'embed')) {
           return normalizeVideoId(pathParts[1]);
         }
       }
@@ -339,15 +237,14 @@
       return null;
     }
 
-    const trimmed = value.trim();
-    return /^[A-Za-z0-9_-]{11}$/.test(trimmed) ? trimmed : null;
+    return /^[A-Za-z0-9_-]{11}$/.test(value) ? value : null;
   }
 
   function isYouTubeShorts() {
     return window.location.pathname.startsWith('/shorts/');
   }
   
-  async function extractMetadata(videoId) {
+  async function extractMetadata() {
     const metadata = {
       title: null,
       channelName: null,
@@ -450,7 +347,7 @@
     return null;
   }
   
-  async function extractFromCaptionTracks(videoId) {
+  async function extractFromCaptionTracks() {
     try {
       // Get player response from page
       const playerResponse = await getPlayerResponse();
@@ -543,7 +440,7 @@
     return lines.join('\n').trim();
   }
   
-  async function extractFromInnertube(videoId) {
+  async function extractFromInnertube() {
     try {
       // Get API key and context from page
       const config = await getYouTubeConfig();
@@ -739,7 +636,7 @@
     return lines.join('\n').trim();
   }
   
-  async function extractFromDOM(videoId) {
+  async function extractFromDOM() {
     try {
       let transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]');
       let panelOpened = false;

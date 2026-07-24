@@ -1,7 +1,7 @@
 # YouTube Transcript Copier
 
-A Chrome extension that exports YouTube transcripts from open tabs with one click.
-Each transcript is downloaded as its own Markdown file.
+A Chrome extension that exports transcripts from open YouTube tabs as Markdown
+files or copies the current transcript to the clipboard.
 
 Use at your own risk.
 
@@ -34,6 +34,14 @@ Make transcript capture fast when you are researching across many YouTube videos
 - Multiple extraction paths for better reliability.
 - Markdown output with metadata like title, channel, and links.
 - Coverage for standard videos, Shorts, and common YouTube URL formats.
+
+## Supported URLs
+
+- `/watch?v=VIDEO_ID`, `/shorts/VIDEO_ID`, and `/embed/VIDEO_ID` on
+  `youtube.com`, `www.youtube.com`, or `m.youtube.com`
+- `https://youtu.be/VIDEO_ID`
+
+Each `VIDEO_ID` must be an 11-character YouTube video ID.
 
 ## Usage
 
@@ -75,13 +83,19 @@ Transcript text
 
 The manifest requests only these permissions.
 
-- `activeTab`, to interact with the tab you trigger from
 - `scripting`, to inject content script during extraction
 - `contextMenus`, to power right click menu actions
 
 Host permissions are limited to the YouTube hosts `youtube.com`, `www.youtube.com`, `m.youtube.com`, and `youtu.be`.
 The extension only starts extraction for supported video URLs on those hosts.
 No storage permission is used.
+
+## Limitations
+
+- A video must have a transcript that YouTube makes available.
+- The first available caption track is exported; there is no language picker.
+- Batch export briefly activates tabs so discarded or background tabs can load.
+- YouTube page changes can temporarily break one or more extraction paths.
 
 ## Quick test checklist
 
@@ -97,4 +111,4 @@ Suggested flow.
 2. Open all sample videos and run batch export.
 3. Verify downloaded files include metadata and multiline transcripts.
 4. Spot check clipboard output for formatting.
-5. Run `./validate-v2.sh` before committing code changes.
+5. Run `./validate.sh` before committing code changes.

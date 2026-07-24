@@ -4,6 +4,8 @@ const activeOperations = new Map();
 // Track pending extraction promises for event-driven communication
 const pendingExtractions = new Map();
 
+let batchExportInProgress = false;
+
 // Initialize extension menus when installed or updated
 chrome.runtime.onInstalled.addListener(() => {
   console.log('YouTube Transcript extension loaded');
@@ -94,7 +96,7 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
     return true;
   } catch (error) {
     if (extractionPromise) {
-      rejectPendingExtraction(tabId, error);
+      settlePendingExtraction(tabId, error);
       await extractionPromise.catch(() => {});
     }
 
@@ -111,70 +113,27 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
 }
 
 // Handle messages from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender) => {
   if (!sender.tab) return;
   
   const tabId = sender.tab.id;
   
   switch (message.type) {
     case 'EXTRACTION_SUCCESS':
-      // Show success badge
       showBadge(tabId, "✓", "#4CAF50");
       setTimeout(() => clearBadge(tabId), 2000);
       activeOperations.delete(tabId);
-      
-      // Resolve pending extraction promise (event-driven)
-      if (pendingExtractions.has(tabId)) {
-        const { resolve, timeoutId } = pendingExtractions.get(tabId);
-        clearTimeout(timeoutId);
-        pendingExtractions.delete(tabId);
-        resolve();
-      }
+      settlePendingExtraction(tabId);
       break;
       
     case 'EXTRACTION_ERROR':
-      // Show error badge
       showBadge(tabId, "!", "#FF0000");
       setTimeout(() => clearBadge(tabId), 3000);
       activeOperations.delete(tabId);
-      
-      // Reject pending extraction promise (event-driven)
-      if (pendingExtractions.has(tabId)) {
-        const { reject, timeoutId } = pendingExtractions.get(tabId);
-        clearTimeout(timeoutId);
-        pendingExtractions.delete(tabId);
-        reject(new Error(message.error?.message || 'Extraction failed'));
-      }
-      break;
-      
-    case 'EXTRACTION_COMPLETE':
-      // Legacy message from content script - treat as success
-      showBadge(tabId, "✓", "#4CAF50");
-      setTimeout(() => clearBadge(tabId), 2000);
-      activeOperations.delete(tabId);
-      
-      // Resolve pending extraction promise (legacy support)
-      if (pendingExtractions.has(tabId)) {
-        const { resolve, timeoutId } = pendingExtractions.get(tabId);
-        clearTimeout(timeoutId);
-        pendingExtractions.delete(tabId);
-        resolve();
-      }
-      break;
-      
-    case 'EXTRACTION_FAILED':
-      // Legacy message from content script - treat as error
-      showBadge(tabId, "!", "#FF0000");
-      setTimeout(() => clearBadge(tabId), 3000);
-      activeOperations.delete(tabId);
-      
-      // Reject pending extraction promise (legacy support)
-      if (pendingExtractions.has(tabId)) {
-        const { reject, timeoutId } = pendingExtractions.get(tabId);
-        clearTimeout(timeoutId);
-        pendingExtractions.delete(tabId);
-        reject(new Error('Extraction failed'));
-      }
+      settlePendingExtraction(
+        tabId,
+        new Error(message.error?.message || 'Extraction failed')
+      );
       break;
   }
 });
@@ -192,24 +151,23 @@ function clearBadge(tabId) {
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   activeOperations.delete(tabId);
-  
-  // Clean up pending extraction promises to prevent memory leak
-  if (pendingExtractions.has(tabId)) {
-    const { reject, timeoutId } = pendingExtractions.get(tabId);
-    clearTimeout(timeoutId);
-    pendingExtractions.delete(tabId);
-    reject(new Error('Tab closed'));
-  }
-  
-  clearBadge(tabId);
+  settlePendingExtraction(tabId, new Error('Tab closed'));
 });
 
 // Export transcripts from all open YouTube tabs
 async function exportAllYouTubeTabs() {
+  if (batchExportInProgress) {
+    return;
+  }
+
+  batchExportInProgress = true;
+  let originallyActiveTabs = [];
+
   try {
     // Query all tabs to find YouTube tabs
     const tabs = await chrome.tabs.query({});
     const youtubeTabs = tabs.filter(tab => isSupportedYouTubeVideoUrl(tab.url));
+    originallyActiveTabs = await chrome.tabs.query({ active: true });
     
     if (youtubeTabs.length === 0) {
       // No YouTube tabs found - show error on current tab if possible
@@ -233,6 +191,7 @@ async function exportAllYouTubeTabs() {
     
     for (let i = 0; i < youtubeTabs.length; i++) {
       const tab = youtubeTabs[i];
+      let extractionPromise = null;
       
       // Skip if operation already in progress for this tab
       if (activeOperations.has(tab.id)) {
@@ -245,9 +204,6 @@ async function exportAllYouTubeTabs() {
       
       try {
         console.log(`Processing tab ${i + 1}/${youtubeTabs.length}: ${tab.url}`);
-        
-        // Ensure tab is loaded by briefly activating it
-        const originalActiveTab = (await chrome.tabs.query({active: true, currentWindow: true}))[0];
         
         // Activate the tab to ensure it loads
         try {
@@ -286,49 +242,34 @@ async function exportAllYouTubeTabs() {
         }
         
         // Set up promise listener BEFORE sending message to prevent race condition
-        const extractionPromise = waitForExtraction(tab.id, 45000); // Longer timeout
+        extractionPromise = waitForExtraction(tab.id, 45000);
         
         // Send extraction command
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: 'START_EXTRACTION'
-          });
-        } catch (messageError) {
-          if (messageError.message.includes('No tab with id')) {
-            console.log(`Tab ${tab.id} closed during processing, skipping`);
-            rejectPendingExtraction(tab.id, messageError);
-            await extractionPromise.catch(() => {});
-            activeOperations.delete(tab.id);
-            failCount++;
-            continue;
-          }
-          throw messageError;
-        }
+        await chrome.tabs.sendMessage(tab.id, {
+          type: 'START_EXTRACTION'
+        });
         
         // Wait for completion
         await extractionPromise;
         successCount++;
         
-        // Restore original active tab
-        if (originalActiveTab && originalActiveTab.id !== tab.id) {
-          try {
-            await chrome.tabs.update(originalActiveTab.id, { active: true });
-          } catch (restoreError) {
-            // Original tab might have been closed, that's OK
-          }
-        }
-        
         // Small delay between tabs
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (error) {
+        if (extractionPromise && pendingExtractions.has(tab.id)) {
+          settlePendingExtraction(tab.id, error);
+          await extractionPromise.catch(() => {});
+        }
+
         console.error(`Failed to extract from tab ${tab.id} (${tab.url}):`, error.message);
         showBadge(tab.id, "!", "#FF0000");
         setTimeout(() => clearBadge(tab.id), 3000);
-        activeOperations.delete(tab.id);
         failCount++;
         
         // Continue to next tab even if this one failed
+      } finally {
+        activeOperations.delete(tab.id);
       }
     }
     
@@ -350,6 +291,20 @@ async function exportAllYouTubeTabs() {
     
   } catch (error) {
     console.error('Error in exportAllYouTubeTabs:', error);
+  } finally {
+    for (const tab of originallyActiveTabs) {
+      if (typeof tab.id !== 'number') {
+        continue;
+      }
+
+      try {
+        await chrome.tabs.update(tab.id, { active: true });
+      } catch (error) {
+        // The tab or its window may have closed during export.
+      }
+    }
+
+    batchExportInProgress = false;
   }
 }
 
@@ -375,20 +330,23 @@ async function waitForTabReady(tabId, timeout = 10000) {
   throw new Error('Tab failed to load within timeout');
 }
 
-function rejectPendingExtraction(tabId, error) {
+function settlePendingExtraction(tabId, error = null) {
   const entry = pendingExtractions.get(tabId);
   if (!entry) {
     return;
   }
 
-  const { reject, timeoutId } = entry;
+  const { resolve, reject, timeoutId } = entry;
   clearTimeout(timeoutId);
   pendingExtractions.delete(tabId);
 
-  if (typeof reject === 'function') {
-    const rejectionReason = error instanceof Error ? error : new Error(String(error));
-    reject(rejectionReason);
+  if (error === null) {
+    resolve();
+    return;
   }
+
+  const rejectionReason = error instanceof Error ? error : new Error(String(error));
+  reject(rejectionReason);
 }
 
 function isSupportedYouTubeVideoUrl(tabUrl) {
@@ -398,13 +356,18 @@ function isSupportedYouTubeVideoUrl(tabUrl) {
 
   try {
     const url = new URL(tabUrl);
-    const hostname = url.hostname.replace(/^www\./, '');
+    const hostname = url.hostname;
 
-    if (hostname === 'youtu.be') {
-      return hasYouTubeVideoId(url.pathname.split('/').filter(Boolean)[0]);
+    if (url.protocol !== 'https:') {
+      return false;
     }
 
-    if (hostname !== 'youtube.com' && hostname !== 'm.youtube.com') {
+    if (hostname === 'youtu.be') {
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      return pathParts.length === 1 && hasYouTubeVideoId(pathParts[0]);
+    }
+
+    if (!['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(hostname)) {
       return false;
     }
 
@@ -412,8 +375,10 @@ function isSupportedYouTubeVideoUrl(tabUrl) {
       return hasYouTubeVideoId(url.searchParams.get('v'));
     }
 
-    if (url.pathname.startsWith('/shorts/') || url.pathname.startsWith('/embed/')) {
-      return hasYouTubeVideoId(url.pathname.split('/').filter(Boolean)[1]);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (pathParts.length === 2 &&
+        (pathParts[0] === 'shorts' || pathParts[0] === 'embed')) {
+      return hasYouTubeVideoId(pathParts[1]);
     }
 
     return false;
