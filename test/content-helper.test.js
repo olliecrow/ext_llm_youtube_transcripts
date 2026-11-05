@@ -297,7 +297,9 @@ test('reads saved logged-out modern watch rows ahead of the hidden searchable sh
  const html = fs.readFileSync(path.join(__dirname, 'fixtures', file), 'utf8');
  const rows = [...html.matchAll(/<transcript-segment-view-model[^>]*>([\s\S]*?)<\/transcript-segment-view-model>/g)].map(match => {
   const text = match[1].match(/<span[^>]*>([^<]+)<\/span>/)[1];
-  const timestamp = match[1].match(/class="ytwTranscriptSegmentViewModelTimestamp">([^<]+)/)[1];
+  const capturedTimestamp = match[1].match(/class="ytwTranscriptSegmentViewModelTimestamp">([^<]+)/)[1];
+  // Distinct cues can share the same displayed second.
+  const timestamp = file === 'watch-untargeted.html' ? '0:00' : capturedTimestamp;
   return {getAttribute: () => null, querySelector: selector => ({textContent: selector.includes('segment-text') ? text : timestamp})};
  });
  const panel = {scrollTop: 0, clientHeight: 300, contains: () => true,

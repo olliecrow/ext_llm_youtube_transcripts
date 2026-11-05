@@ -663,7 +663,7 @@
           const textNode = segment.querySelector(selectors.text);
           const text = textNode ? textNode.textContent.replace(/\s+/g, ' ').trim() : cleanTranscriptLine(segment.textContent || '');
           const timestamp = segment.querySelector('.segment-timestamp, .ytwTranscriptSegmentViewModelTimestamp')?.textContent?.trim();
-          const key = segment.getAttribute('data-start-ms') || timestamp || String(index);
+          const key = segment.getAttribute('data-start-ms') || `${timestamp || index}:${text}`;
           if (text) rows.set(key, text);
         }
         unchanged = rows.size === previousCount ? unchanged + 1 : 0;
