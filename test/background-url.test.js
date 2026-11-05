@@ -164,3 +164,15 @@ test('ignores messages from other extensions and unsupported pages', async () =>
   context.settlePendingExtraction(103);
   await pending;
 });
+
+test('passes a main-world player snapshot to extraction', async () => {
+ const tab = { id: 301, url: 'https://www.youtube.com/watch?v=kxpbdFMgPJ4', status: 'complete' };
+ const snapshot = { videoId: 'kxpbdFMgPJ4', title: 'Current video', captionTracks: [] };
+ context.chrome.tabs.get = async () => tab;
+ context.chrome.scripting.executeScript = async options => options.world === 'MAIN' ? [{result: snapshot}] : [];
+ context.chrome.tabs.sendMessage = async (tabId, message) => {
+   assert.equal(message.snapshot, snapshot);
+   runtimeMessageListener({type: 'EXTRACTION_SUCCESS'}, {id: 'test-extension', tab});
+ };
+ assert.equal(await context.executeTranscriptAction(tab), true);
+});

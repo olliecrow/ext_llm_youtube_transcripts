@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    getPlayerResponse,
     transcriptDomSelectors,
     extractFromDOM,
     extractTextFromJson3,
@@ -282,4 +283,8 @@ test('supports current and legacy panel and row selectors', () => {
  assert.match(selectors.panels[1], /PAmodern_transcript_view/);
  assert.match(selectors.panels[2], /engagement-panel-transcript/);
  assert.deepEqual(Array.from(selectors.segments), ['ytd-transcript-segment-renderer', 'transcript-segment-view-model']);
+});
+
+test('does not read player expandos in the isolated world', () => {
+ assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8'), /__data|player_/);
 });

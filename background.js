@@ -89,7 +89,8 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
 
     await chrome.tabs.sendMessage(tabId, {
       type: 'START_EXTRACTION',
-      mode
+      mode,
+      snapshot: await readPlayerSnapshot(tabId)
     });
 
     await extractionPromise;
@@ -262,7 +263,8 @@ async function exportAllYouTubeTabs() {
         
         // Send extraction command
         await chrome.tabs.sendMessage(tab.id, {
-          type: 'START_EXTRACTION'
+          type: 'START_EXTRACTION',
+          snapshot: await readPlayerSnapshot(tab.id)
         });
         
         // Wait for completion
@@ -417,4 +419,48 @@ function waitForExtraction(tabId, timeout = 30000) { // Default 30 seconds
 function videoIdFromUrl(value) {
   const url = new URL(value);
   return url.searchParams.get('v') || url.pathname.split('/').filter(Boolean).pop();
+}
+
+async function readPlayerSnapshot(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const attempts = new URL(tab.url).pathname.startsWith('/embed/') ? 6 : 1;
+  let snapshot = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const results = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: playerSnapshot });
+    snapshot = results?.[0]?.result || null;
+    if (snapshot?.captionTracks?.length) break;
+    if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return snapshot;
+}
+
+function playerSnapshot() {
+  const player = document.querySelector('#movie_player');
+  const response = player?.getPlayerResponse?.() ||
+    document.querySelector('ytd-player')?.player_?.getPlayerResponse?.() ||
+    player?.player_?.getPlayerResponse?.() || window.ytInitialPlayerResponse;
+  if (!response?.videoDetails) return null;
+  const details = response.videoDetails;
+  const micro = response.microformat?.playerMicroformatRenderer || {};
+  function params(root) {
+    const seen = new Set();
+    const queue = [root];
+    for (let i = 0; i < queue.length && i < 50000; i++) {
+      const value = queue[i];
+      if (!value || typeof value !== 'object' || seen.has(value)) continue;
+      seen.add(value);
+      const found = value.getTranscriptEndpoint?.params || value.videoDescriptionTranscriptSectionRenderer?.openTranscriptCommand?.serializedShareEntity;
+      if (typeof found === 'string') return found;
+      queue.push(...Object.values(value));
+    }
+    return null;
+  }
+  return {
+    videoId: details.videoId, title: details.title, author: details.author,
+    channelId: details.channelId, shortDescription: details.shortDescription,
+    publishDate: details.publishDate || micro.publishDate || micro.uploadDate,
+    captionTracks: (response.captions?.playerCaptionsTracklistRenderer?.captionTracks || []).slice(0, 20)
+      .map(({ baseUrl, languageCode, kind }) => ({ baseUrl, languageCode, kind })),
+    transcriptParams: params(window.ytInitialData) || params(response)
+  };
 }

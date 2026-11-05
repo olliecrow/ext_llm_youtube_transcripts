@@ -14,6 +14,7 @@
   let cachedPlayerResponse = null;
   let cachedYouTubeConfig = null;
   let cachedInitialData = null;
+  let currentSnapshot = null;
 
   const NETWORK_TIMEOUT_MS = 10000;
   
@@ -95,12 +96,13 @@
         return;
       }
       const mode = message.mode || 'markdown';
-      void performExtraction(mode);
+      void performExtraction(mode, message.snapshot);
     }
   }
   
-  async function performExtraction(mode) {
+  async function performExtraction(mode, snapshot) {
     extractionInProgress = true;
+    currentSnapshot = normalizeVideoId(snapshot?.videoId) === extractVideoId() ? snapshot : null;
     cachedPlayerResponse = null;
     cachedYouTubeConfig = null;
     cachedInitialData = null;
@@ -222,17 +224,6 @@
       }
     } catch (error) {
       console.warn('Failed to parse video URL:', error);
-    }
-    
-    // Fallback: Try to get from page's player data
-    try {
-      const playerData = document.querySelector('ytd-watch-flexy')?.__data;
-      const playerVideoId = normalizeVideoId(playerData?.watchEndpoint?.videoId);
-      if (playerVideoId) {
-        return playerVideoId;
-      }
-    } catch (e) {
-      console.warn('Failed to extract video ID from player data:', e);
     }
     
     return null;
@@ -450,7 +441,7 @@
         throw new Error('Could not extract Innertube config');
       }
       
-      let transcriptParams = findTranscriptParams(await getInitialData());
+      let transcriptParams = currentSnapshot?.transcriptParams || findTranscriptParams(await getInitialData());
       
       if (!transcriptParams) {
         // Older page shapes can keep transcript params in player response panels.
@@ -458,17 +449,6 @@
         transcriptParams = findTranscriptParams(playerResponse);
       }
 
-      if (!transcriptParams) {
-        // Try alternative method to get params
-        const transcriptButton = document.querySelector('[aria-label*="transcript" i]');
-        if (transcriptButton) {
-          const data = transcriptButton.closest('ytd-menu-service-item-renderer')?.__data;
-          if (data?.serviceEndpoint?.showEngagementPanelEndpoint?.engagementPanel?.engagementPanelSectionListRenderer?.content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params) {
-            transcriptParams = data.serviceEndpoint.showEngagementPanelEndpoint.engagementPanel.engagementPanelSectionListRenderer.content.continuationItemRenderer.continuationEndpoint.getTranscriptEndpoint.params;
-          }
-        }
-      }
-      
       if (!transcriptParams) {
         throw new Error('No transcript params found');
       }
@@ -894,6 +874,10 @@
       return cachedPlayerResponse;
     }
 
+    if (currentSnapshot) {
+      cachedPlayerResponse = { videoDetails: currentSnapshot, captions: { playerCaptionsTracklistRenderer: { captionTracks: currentSnapshot.captionTracks } } };
+      return cachedPlayerResponse;
+    }
     const scripts = document.querySelectorAll('script');
 
     for (const script of scripts) {
@@ -905,7 +889,7 @@
       if (text.includes('ytInitialPlayerResponse')) {
         const jsonText = extractJsonBlock(text, 'ytInitialPlayerResponse');
         const parsed = tryParseJson(jsonText);
-        if (parsed) {
+        if (normalizeVideoId(parsed?.videoDetails?.videoId) === extractVideoId()) {
           cachedPlayerResponse = parsed;
           return cachedPlayerResponse;
         }
@@ -914,24 +898,10 @@
       if (text.includes('"playerResponse"')) {
         const jsonText = extractJsonBlock(text, '"playerResponse"');
         const parsed = tryParseJson(jsonText);
-        if (parsed) {
+        if (normalizeVideoId(parsed?.videoDetails?.videoId) === extractVideoId()) {
           cachedPlayerResponse = parsed;
           return cachedPlayerResponse;
         }
-      }
-    }
-
-    const playerElement = document.querySelector('ytd-player');
-    const playerInstance = playerElement && playerElement.player_;
-    if (playerInstance && typeof playerInstance.getPlayerResponse === 'function') {
-      try {
-        const response = playerInstance.getPlayerResponse();
-        if (response) {
-          cachedPlayerResponse = response;
-          return cachedPlayerResponse;
-        }
-      } catch (error) {
-        console.warn('Failed to read player response from player object:', error);
       }
     }
 
