@@ -37,7 +37,7 @@ Make transcript capture fast when you are researching across many YouTube videos
 
 ## Supported URLs
 
-- `/watch?v=VIDEO_ID`, `/shorts/VIDEO_ID`, and `/embed/VIDEO_ID` on
+- `/watch?v=VIDEO_ID`, `/shorts/VIDEO_ID`, `/embed/VIDEO_ID`, and `/live/VIDEO_ID` on
   `youtube.com`, `www.youtube.com`, or `m.youtube.com`
 - `https://youtu.be/VIDEO_ID`
 

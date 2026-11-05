@@ -64,6 +64,7 @@ test('recognises supported YouTube video URLs', () => {
     'https://m.youtube.com/watch?v=kxpbdFMgPJ4',
     'https://www.youtube.com/shorts/kxpbdFMgPJ4',
     'https://youtube.com/embed/kxpbdFMgPJ4',
+    'https://www.youtube.com/live/kxpbdFMgPJ4',
     'https://youtu.be/kxpbdFMgPJ4'
   ];
 
@@ -88,6 +89,7 @@ test('rejects non-video and non-YouTube URLs', () => {
     'https://youtu.be/kxpbdFMgPJ4/extra',
     'https://www.youtube.com/shorts/kxpbdFMgPJ4/extra',
     'https://www.youtube.com/embed/kxpbdFMgPJ4/extra',
+    'https://www.youtube.com/live/kxpbdFMgPJ4/extra',
     'https://notyoutube.com/watch?v=kxpbdFMgPJ4',
     'https://example.com/youtu.be/kxpbdFMgPJ4'
   ];

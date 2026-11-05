@@ -330,7 +330,7 @@ function isSupportedYouTubeVideoUrl(tabUrl) {
 
     const pathParts = url.pathname.split('/').filter(Boolean);
     if (pathParts.length === 2 &&
-        (pathParts[0] === 'shorts' || pathParts[0] === 'embed')) {
+        (pathParts[0] === 'shorts' || pathParts[0] === 'embed' || pathParts[0] === 'live')) {
       return hasYouTubeVideoId(pathParts[1]);
     }
 

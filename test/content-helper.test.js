@@ -72,6 +72,7 @@ test('extracts video ids from supported URL forms', () => {
     ['https://m.youtube.com/watch?v=kxpbdFMgPJ4&feature=share', 'kxpbdFMgPJ4'],
     ['https://www.youtube.com/shorts/kxpbdFMgPJ4?feature=share', 'kxpbdFMgPJ4'],
     ['https://www.youtube.com/embed/kxpbdFMgPJ4', 'kxpbdFMgPJ4'],
+    ['https://www.youtube.com/live/kxpbdFMgPJ4', 'kxpbdFMgPJ4'],
     ['https://youtu.be/kxpbdFMgPJ4?t=10', 'kxpbdFMgPJ4']
   ];
 
@@ -92,7 +93,8 @@ test('rejects missing or malformed video ids', () => {
     'https://youtu.be/not-a-video-id',
     'https://youtu.be/kxpbdFMgPJ4/extra',
     'https://www.youtube.com/shorts/kxpbdFMgPJ4/extra',
-    'https://www.youtube.com/embed/kxpbdFMgPJ4/extra'
+    'https://www.youtube.com/embed/kxpbdFMgPJ4/extra',
+    'https://www.youtube.com/live/kxpbdFMgPJ4/extra'
   ];
 
   for (const url of cases) {
