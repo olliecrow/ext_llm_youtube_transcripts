@@ -12,6 +12,7 @@ const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 
     getPlayerResponse,
     transcriptDomSelectors,
     extractFromDOM,
+    extractTranscript,
     extractTextFromJson3,
     isAllowedCaptionUrl,
     formatPublishDate,
@@ -26,9 +27,17 @@ const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 
     normalizeVideoId,
     sanitizeFilename
   };
+  window.__testHooks.resetExtractionCache = () => {
+    cachedPlayerResponse = null;
+    cachedYouTubeConfig = null;
+    cachedInitialData = null;
+    currentSnapshot = null;
+  };
 })();`);
 
 const context = {
+  AbortController,
+  clearTimeout,
   chrome: {
     runtime: {
       onMessage: { addListener() {} }
@@ -350,4 +359,123 @@ test('accepts only the current video snapshot', () => {
  assert.equal(context.window.__testHooks.acceptSnapshot(snapshot), snapshot);
  assert.equal(context.window.__testHooks.acceptSnapshot({videoId: 'dQw4w9WgXcQ'}), null);
  assert.equal(context.window.__testHooks.acceptSnapshot(null), null);
+});
+
+function transcriptSegment(text) {
+  return {
+    getAttribute: () => null,
+    querySelector: selector => ({ textContent: selector.includes('segment-text') ? text : '0:01' })
+  };
+}
+
+function transcriptPanel(rows) {
+  return {
+    scrollTop: 0,
+    clientHeight: 300,
+    contains: () => true,
+    getAttribute: () => 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED',
+    querySelector: () => rows[0],
+    querySelectorAll: () => rows
+  };
+}
+
+async function withPage(setup, fn) {
+  const saved = {
+    querySelector: context.document.querySelector,
+    querySelectorAll: context.document.querySelectorAll,
+    documentElement: context.document.documentElement,
+    innerText: context.document.body.innerText,
+    fetch: context.fetch,
+    setTimeout: context.setTimeout,
+    warn: console.warn
+  };
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.map(String).join(' '));
+  context.window.__testHooks.resetExtractionCache();
+  try {
+    if (setup.querySelector) context.document.querySelector = setup.querySelector;
+    if (setup.querySelectorAll) context.document.querySelectorAll = setup.querySelectorAll;
+    if (setup.documentElement) context.document.documentElement = setup.documentElement;
+    if (setup.innerText !== undefined) context.document.body.innerText = setup.innerText;
+    if (setup.fetch) context.fetch = setup.fetch;
+    if (setup.immediateTimers) context.setTimeout = callback => { callback(); return 0; };
+    return await fn(warnings);
+  } finally {
+    context.document.querySelector = saved.querySelector;
+    context.document.querySelectorAll = saved.querySelectorAll;
+    context.document.documentElement = saved.documentElement;
+    context.document.body.innerText = saved.innerText;
+    if (saved.fetch) context.fetch = saved.fetch;
+    else delete context.fetch;
+    context.setTimeout = saved.setTimeout;
+    console.warn = saved.warn;
+  }
+}
+
+test('returns the visible panel transcript without calling data fallbacks', async () => {
+  const panel = transcriptPanel([transcriptSegment('Panel sentence.')]);
+  await withPage({
+    immediateTimers: true,
+    querySelector: selector => selector.includes('engagement-panel') || selector.includes('transcript-segment') ? panel : null,
+    fetch: () => { throw new Error('data fallback ran'); }
+  }, async () => {
+    const transcript = await context.window.__testHooks.extractTranscript('kxpbdFMgPJ4');
+    assert.equal(transcript, 'Panel sentence.');
+    assert.equal(panel.scrollTop, 0);
+  });
+});
+
+test('keeps an empty caption response and a failed transcript call from hiding later text', async () => {
+  const player = {
+    videoDetails: { videoId: 'kxpbdFMgPJ4', title: 'Current' },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{
+          baseUrl: 'https://www.youtube.com/api/timedtext?v=kxpbdFMgPJ4&lang=en',
+          languageCode: 'en'
+        }]
+      }
+    },
+    getTranscriptEndpoint: { params: 'transcript-params' }
+  };
+  const scripts = [
+    { textContent: `ytInitialPlayerResponse = ${JSON.stringify(player)};` },
+    { textContent: '"INNERTUBE_API_KEY":"x","INNERTUBE_CONTEXT":{"client":{"hl":"en"}},"INNERTUBE_CLIENT_VERSION":"1"' }
+  ];
+  const calls = [];
+  const started = Date.now();
+  await withPage({
+    querySelector: () => null,
+    querySelectorAll: selector => selector === 'script' ? scripts : [],
+    documentElement: { lang: 'en' },
+    innerText: 'Transcript\nSearch transcript\nHello from the visible panel.\nAll',
+    fetch: async url => {
+      calls.push(String(url));
+      if (String(url).includes('get_transcript')) {
+        return { ok: false, status: 400, text: async () => '{"error":{"status":"FAILED_PRECONDITION"}}' };
+      }
+      return { ok: true, status: 200, text: async () => '' };
+    }
+  }, async warnings => {
+    const transcript = await context.window.__testHooks.extractTranscript('kxpbdFMgPJ4');
+    assert.equal(transcript, 'Hello from the visible panel.');
+    assert.ok(calls.some(url => url.includes('fmt=json3')), JSON.stringify({ calls, warnings }));
+    assert.ok(calls.some(url => url.includes('get_transcript')));
+    assert.ok(calls.some(url => url.includes('/api/timedtext?lang=')));
+    assert.equal(warnings.length, 0);
+    assert.ok(Date.now() - started < 1000);
+  });
+});
+
+test('continues extraction when one method throws without a message', async () => {
+  await withPage({
+    querySelector: () => { throw Object.create(null); },
+    querySelectorAll: () => [],
+    documentElement: { lang: 'en' },
+    innerText: 'Transcript\nSearch transcript\nStill available.\nAll',
+    fetch: async () => ({ ok: true, status: 200, text: async () => '' })
+  }, async () => {
+    const transcript = await context.window.__testHooks.extractTranscript('kxpbdFMgPJ4');
+    assert.equal(transcript, 'Still available.');
+  });
 });

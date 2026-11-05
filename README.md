@@ -31,8 +31,9 @@ Make transcript capture fast when you are researching across many YouTube videos
 - Right click menu for current tab export and clipboard copy.
 - Automatic tab switching when needed so extraction can run.
 - Transcript text stays in the browser and is written to a local file or the clipboard.
-  The extension requests caption data from YouTube for the open video with the
-  existing YouTube session. It does not send transcripts to another server.
+  The visible transcript panel is read first. Caption and transcript requests run
+  only when that panel has no rows. They use the open YouTube session and do not
+  send the transcript to another server.
 - Multiple extraction paths for better reliability.
 - Markdown output with metadata like title, channel, and links.
 - Coverage for standard videos, Shorts, and common YouTube URL formats.

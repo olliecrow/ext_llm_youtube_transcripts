@@ -310,6 +310,12 @@
     return metadata;
   }
   
+  function isExpectedExtractionMiss(error) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    return message.includes('429') ||
+      /^(No caption tracks found|No valid caption track URL|Unsupported caption URL|Caption fetch failed|Caption response was empty|Caption response was not valid JSON|Invalid JSON3 caption data|Transcript data empty|Could not extract Innertube config|No transcript params found|Innertube request failed|No text extracted from Innertube segments|TimedText fetch failed|No captions in TimedText response|No text nodes in XML|No transcript button available for this video|Transcript panel is unavailable|No transcript rows available for this video|Element )/.test(message);
+  }
+
   async function extractTranscript(videoId) {
     const methods = [
       extractFromDOM,
@@ -318,26 +324,23 @@
       extractFromTimedText,
       extractFromVisibleText
     ];
-    
+
     for (const method of methods) {
       try {
         const result = await method(videoId);
-        
-        if (result && result.transcript) {
+        if (result?.transcript) {
           console.debug(`Transcript extracted using ${method.name}`);
           return result.transcript;
         }
       } catch (error) {
-        // Only log if it's not a common expected error
-        if (!error.message.includes('429') && 
-            !error.message.includes('Caption fetch failed') &&
-            !error.message.includes('Could not extract Innertube config')) {
-          console.warn(`Method ${method.name} failed:`, error.message);
+        // A miss must not abort later methods or replace a panel result.
+        if (!isExpectedExtractionMiss(error)) {
+          const message = typeof error?.message === 'string' ? error.message : 'Unknown extraction error';
+          console.warn(`Method ${method.name} failed:`, message);
         }
-        continue;
       }
     }
-    
+
     return null;
   }
   
@@ -351,8 +354,6 @@
   }
 
   async function extractFromCaptionTracks() {
-    try {
-      // Get player response from page
       const playerResponse = await getPlayerResponse();
       
       if (!playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks) {
@@ -404,13 +405,6 @@
         language: track.languageCode,
         source: 'captionTracks'
       };
-    } catch (error) {
-      // Only log unexpected errors, not rate limiting
-      if (!error.message.includes('429') && !error.message.includes('Caption fetch failed')) {
-        console.warn('CaptionTracks extraction failed:', error);
-      }
-      throw error;
-    }
   }
   
   function extractTextFromJson3(data) {
@@ -437,8 +431,6 @@
   }
   
   async function extractFromInnertube() {
-    try {
-      // Get API key and context from page
       const config = await getYouTubeConfig();
       
       if (!config || !config.apiKey || !config.context) {
@@ -490,14 +482,6 @@
         transcript,
         source: 'innertube'
       };
-    } catch (error) {
-      // Only log unexpected errors
-      if (!error.message.includes('Could not extract Innertube config') &&
-          !error.message.includes('Failed to parse INNERTUBE_CONTEXT')) {
-        console.warn('Innertube extraction failed:', error);
-      }
-      throw error;
-    }
   }
 
   function findTranscriptParams(source) {
@@ -555,8 +539,6 @@
   }
   
   async function extractFromTimedText(videoId) {
-    try {
-      // Try to get language from page or use default
       const lang = document.documentElement.lang?.split('-')[0] || 'en';
       
       const url = `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(lang)}&v=${encodeURIComponent(videoId)}`;
@@ -582,13 +564,6 @@
         language: lang,
         source: 'timedtext'
       };
-    } catch (error) {
-      // Only log unexpected errors, not rate limiting
-      if (!error.message.includes('429') && !error.message.includes('TimedText fetch failed')) {
-        console.warn('TimedText extraction failed:', error);
-      }
-      throw error;
-    }
   }
   
   function extractTextFromXML(xmlText) {
@@ -979,7 +954,7 @@
       return cachedYouTubeConfig;
     }
 
-    console.warn('No YouTube config found in script tags');
+    console.debug('No YouTube config found in script tags');
     return null;
   }
     
