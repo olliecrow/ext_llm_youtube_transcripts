@@ -146,7 +146,7 @@ test('batch export cleans up send failures and restores active tabs', async () =
   await context.exportAllYouTubeTabs();
   await context.exportAllYouTubeTabs();
 
-  assert.equal(sendCount, 2, 'a failed batch must not leave the next run blocked');
+  assert.equal(sendCount, 4, 'a failed batch must not leave the next run blocked');
   assert.deepEqual(
     activatedTabIds,
     [targetTab.id, originalTab.id, targetTab.id, originalTab.id]
@@ -175,4 +175,36 @@ test('passes a main-world player snapshot to extraction', async () => {
    runtimeMessageListener({type: 'EXTRACTION_SUCCESS'}, {id: 'test-extension', tab});
  };
  assert.equal(await context.executeTranscriptAction(tab), true);
+});
+
+test('batch preserves focus for loaded tabs and activates discarded tabs', async () => {
+ const original = {id: 402, url: 'https://example.com/', status: 'complete'};
+ const tab = {id: 401, url: 'https://www.youtube.com/watch?v=kxpbdFMgPJ4', status: 'complete'};
+ const activations = [];
+ context.chrome.tabs.query = async query => query.active ? [original] : [tab, original];
+ context.chrome.tabs.get = async () => tab;
+ context.chrome.tabs.update = async id => activations.push(id);
+ context.chrome.tabs.sendMessage = async () => runtimeMessageListener({type: 'EXTRACTION_SUCCESS'}, {id: 'test-extension', tab});
+ context.chrome.scripting.executeScript = async () => [];
+ await context.exportAllYouTubeTabs();
+ assert.deepEqual(activations, []);
+ tab.discarded = true;
+ await context.exportAllYouTubeTabs();
+ assert.deepEqual(activations, [tab.id, original.id]);
+});
+test('batch retries a loaded tab once with activation', async () => {
+ const tab = {id: 501, url: 'https://www.youtube.com/watch?v=kxpbdFMgPJ4', status: 'complete'};
+ const original = {id: 502};
+ const activations = [];
+ let attempts = 0;
+ context.chrome.tabs.query = async query => query.active ? [original] : [tab];
+ context.chrome.tabs.get = async () => tab;
+ context.chrome.tabs.update = async id => activations.push(id);
+ context.chrome.tabs.sendMessage = async () => {
+  if (++attempts === 1) throw new Error('Background tab unavailable');
+  runtimeMessageListener({type: 'EXTRACTION_SUCCESS'}, {id: 'test-extension', tab});
+ };
+ await context.exportAllYouTubeTabs();
+ assert.equal(attempts, 2);
+ assert.deepEqual(activations, [tab.id, original.id]);
 });

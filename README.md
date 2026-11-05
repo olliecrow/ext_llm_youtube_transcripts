@@ -49,7 +49,7 @@ Each `VIDEO_ID` must be an 11-character YouTube video ID.
 
 1. Open the videos you want in separate tabs.
 2. Left click the extension icon.
-3. Tabs activate one by one while Markdown files download.
+3. Markdown files download. A tab activates only if it is discarded, still loading, or its first extraction attempt fails.
 4. Badge text shows progress and success count.
 
 ### Export only the current tab as Markdown
@@ -94,7 +94,7 @@ No storage permission is used.
 
 - A video must have a transcript that YouTube makes available.
 - The first available caption track is exported; there is no language picker.
-- Batch export briefly activates tabs so discarded or background tabs can load.
+- If batch export switches tabs, it restores the previously active tab.
 - YouTube page changes can temporarily break one or more extraction paths.
 
 ## Quick test checklist

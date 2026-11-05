@@ -179,6 +179,7 @@ async function exportAllYouTubeTabs() {
 
   batchExportInProgress = true;
   let originallyActiveTabs = [];
+  let changedActiveTab = false;
 
   try {
     // Query all tabs to find YouTube tabs
@@ -208,85 +209,27 @@ async function exportAllYouTubeTabs() {
     
     for (let i = 0; i < youtubeTabs.length; i++) {
       const tab = youtubeTabs[i];
-      let extractionPromise = null;
-      
-      // Skip if operation already in progress for this tab
-      if (activeOperations.has(tab.id)) {
-        failCount++;
-        continue;
-      }
-      
-      // Mark operation as active
-      activeOperations.set(tab.id, 'markdown');
-      
+      if (activeOperations.has(tab.id)) { failCount++; continue; }
+      let activated = false;
       try {
-        console.log(`Processing tab ${i + 1}/${youtubeTabs.length}: ${videoIdFromUrl(tab.url)}`);
-        
-        // Activate the tab to ensure it loads
-        try {
+        if (tab.discarded || tab.status !== 'complete') {
           await chrome.tabs.update(tab.id, { active: true });
-        } catch (tabError) {
-          console.log(`Tab ${tab.id} no longer exists, skipping`);
-          activeOperations.delete(tab.id);
-          failCount++;
-          continue;
+          activated = true;
+          changedActiveTab = true;
+          await waitForTabReady(tab.id);
         }
-        
-        // Wait for tab to be ready
-        await waitForTabReady(tab.id, 10000);
-        
-        // Show processing state on the tab being processed
-        showBadge(tab.id, "...", "#808080");
-        
-        // Inject content script with retry
-        let injectionSuccess = false;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              files: ['content.js']
-            });
-            injectionSuccess = true;
-            break;
-          } catch (injectionError) {
-            console.warn(`Script injection attempt ${attempt + 1} failed for tab ${tab.id}:`, injectionError.message);
-            if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+        let success = await executeTranscriptAction(tab);
+        if (!success && !activated) {
+          await chrome.tabs.update(tab.id, { active: true });
+          changedActiveTab = true;
+          await waitForTabReady(tab.id);
+          success = await executeTranscriptAction(tab);
         }
-        
-        if (!injectionSuccess) {
-          throw new Error('Failed to inject content script after 3 attempts');
-        }
-        
-        // Set up promise listener BEFORE sending message to prevent race condition
-        extractionPromise = waitForExtraction(tab.id, 45000);
-        
-        // Send extraction command
-        await chrome.tabs.sendMessage(tab.id, {
-          type: 'START_EXTRACTION',
-          snapshot: await readPlayerSnapshot(tab.id)
-        });
-        
-        // Wait for completion
-        await extractionPromise;
-        successCount++;
-        
-        // Small delay between tabs
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-      } catch (error) {
-        if (extractionPromise && pendingExtractions.has(tab.id)) {
-          settlePendingExtraction(tab.id, error);
-          await extractionPromise.catch(() => {});
-        }
-
-        console.error(`Failed to extract from tab ${tab.id} (${videoIdFromUrl(tab.url)}):`, error.message);
-        showBadge(tab.id, "!", "#FF0000", 10000, error.message);
+        if (success) successCount++;
+        else failCount++;
+      } catch {
         failCount++;
-        
-        // Continue to next tab even if this one failed
-      } finally {
-        activeOperations.delete(tab.id);
+        showBadge(tab.id, '!', '#FF0000', 10000, 'Tab closed or failed to load');
       }
     }
     
@@ -302,7 +245,7 @@ async function exportAllYouTubeTabs() {
   } catch (error) {
     console.error('Error in exportAllYouTubeTabs:', error);
   } finally {
-    for (const tab of originallyActiveTabs) {
+    for (const tab of changedActiveTab ? originallyActiveTabs : []) {
       if (typeof tab.id !== 'number') {
         continue;
       }
