@@ -59,45 +59,22 @@ jobs:
         run: |
           set -euo pipefail
           range="$(bash scripts/security/resolve-commit-range.sh)"
-          gitleaks git --redact --verbose --config .gitleaks.toml --log-opts="${range}"
+          # Also scan what a merge commit adds against its first parent.
+          gitleaks git --redact --verbose --config .gitleaks.toml --log-opts="--diff-merges=first-parent ${range}"
 
-      - name: Self-test sensitive text policy patterns
+      - name: Self-test gitleaks path policy
         run: |
           set -euo pipefail
-          tmp_ok="$(mktemp)"
-          tmp_bad="$(mktemp)"
-          printf 'docs: keep /Users/YOU as placeholder only\n' > "${tmp_ok}"
-          printf 'fix: %s=%s\n' "token" "abc123456789XYZ" > "${tmp_bad}"
-          bash scripts/security/check-sensitive-text.sh --context=policy-selftest "${tmp_ok}"
-          if bash scripts/security/check-sensitive-text.sh --context=policy-selftest "${tmp_bad}"; then
-            echo "expected policy self-test failure did not occur" >&2
+          sample_dir="$(mktemp -d)"
+          printf 'docs: keep /Users/YOU as placeholder only\n' > "${sample_dir}/sample.txt"
+          gitleaks dir --no-banner --redact --config .gitleaks.toml "${sample_dir}"
+          printf 'docs: /Users/YOU and /Users/%s\n' "someone" > "${sample_dir}/sample.txt"
+          if gitleaks dir --no-banner --redact --config .gitleaks.toml "${sample_dir}"; then
+            echo "expected gitleaks to report a real path beside a placeholder" >&2
             exit 1
           fi
 
-      - name: Self-test email policy
-        run: |
-          set -euo pipefail
-          tmp_email="$(mktemp)"
-          printf '%s@%s\n' 'contributor' 'users.noreply.github.com' > "$tmp_email"
-          bash scripts/security/check-sensitive-text.sh --context=email-selftest "$tmp_email"
-          printf '%s@%s\n' 'person' 'example.com' > "$tmp_email"
-          if bash scripts/security/check-sensitive-text.sh --context=email-selftest "$tmp_email"; then
-            echo "expected email policy failure did not occur" >&2
-            exit 1
-          fi
-          rm "$tmp_email"
-
-      - name: Self-test sensitive text policy without ripgrep
-        run: |
-          set -euo pipefail
-          tmp_bad="$(mktemp)"
-          printf 'fix: %s=%s\n' "token" "abc123456789XYZ" > "${tmp_bad}"
-          if PATH="/usr/bin:/bin" bash scripts/security/check-sensitive-text.sh --context=policy-fallback-selftest "${tmp_bad}"; then
-            echo "expected fallback policy self-test failure did not occur" >&2
-            exit 1
-          fi
-
-      - name: Check commit messages for policy violations
+      - name: Check pushed/PR commit messages and added lines
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -105,9 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           range="$(bash scripts/security/resolve-commit-range.sh)"
-          temp_file="$(mktemp)"
-          git log --format='%H%n%s%n%b%n' "${range}" > "${temp_file}"
-          bash scripts/security/check-sensitive-text.sh --context=commit-message "${temp_file}"
+          bash scripts/security/check-push-range.sh --range "${range}"
 
       - name: Check pull request title/body for policy violations
         if: github.event_name == 'pull_request'
