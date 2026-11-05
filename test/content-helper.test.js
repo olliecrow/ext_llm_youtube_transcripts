@@ -293,7 +293,8 @@ test('does not read player expandos in the isolated world', () => {
 });
 
 test('reads saved logged-out modern watch rows ahead of the hidden searchable shell', async () => {
- const html = fs.readFileSync(path.join(__dirname, 'fixtures/watch-modern.html'), 'utf8');
+ for (const file of ['watch-modern.html', 'watch-untargeted.html']) {
+ const html = fs.readFileSync(path.join(__dirname, 'fixtures', file), 'utf8');
  const rows = [...html.matchAll(/<transcript-segment-view-model[^>]*>([\s\S]*?)<\/transcript-segment-view-model>/g)].map(match => {
   const text = match[1].match(/<span[^>]*>([^<]+)<\/span>/)[1];
   const timestamp = match[1].match(/class="ytwTranscriptSegmentViewModelTimestamp">([^<]+)/)[1];
@@ -304,13 +305,14 @@ test('reads saved logged-out modern watch rows ahead of the hidden searchable sh
    querySelector: () => rows[0], querySelectorAll: () => rows};
  const emptyPanel = {querySelector: () => null, querySelectorAll: () => [], getAttribute: () => 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'};
  const oldQuery = context.document.querySelector;
- context.document.querySelector = selector => selector.includes('PAmodern_transcript_view') ? panel : selector.includes('searchable-transcript') ? emptyPanel : null;
+ context.document.querySelector = selector => selector.includes(file === 'watch-modern.html' ? 'PAmodern_transcript_view' : ':has(transcript-segment-view-model)') ? panel : selector.includes('searchable-transcript') ? emptyPanel : null;
  try {
   const result = await context.window.__testHooks.extractFromDOM();
   assert.equal(result.transcript.split('\n').length, rows.length);
   assert.equal(result.transcript.split('\n')[0], 'Fixture sentence 1.');
   assert.equal(panel.scrollTop, 0);
  } finally {context.document.querySelector = oldQuery;}
+ }
 });
 
 test('accepts only the current video snapshot', () => {

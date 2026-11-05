@@ -612,7 +612,9 @@
       panels: [
         'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
         'ytd-engagement-panel-section-list-renderer[target-id="PAmodern_transcript_view"]',
-        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
+        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]',
+        'ytd-engagement-panel-section-list-renderer:has(transcript-segment-view-model)',
+        'ytd-engagement-panel-section-list-renderer:has(ytd-transcript-segment-renderer)'
       ],
       segments: ['ytd-transcript-segment-renderer', 'transcript-segment-view-model'],
       text: '.segment-text, .ytwTranscriptSegmentViewModelSegment, span.ytAttributedStringHost'
