@@ -101,7 +101,7 @@ No storage permission is used.
 - Embed pages can have no transcript UI.
 - Chrome can stop a batch that runs longer than 5 minutes.
 - If batch export switches tabs, it restores the previously active tab.
-- If an export opens the transcript panel, it clicks Close transcript when that control is present. A panel that was already open stays open.
+- If an export opens the transcript panel, it then clicks that panel's own Close (or legacy Close transcript) control. A panel that was already open stays open.
 - YouTube page changes can temporarily break one or more extraction paths.
 
 ## Quick test checklist

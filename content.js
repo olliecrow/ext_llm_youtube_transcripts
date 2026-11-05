@@ -657,16 +657,19 @@
       if (!lines.length) throw new Error('No transcript rows available for this video');
       return { transcript: lines.join('\n'), source: 'dom' };
     } finally {
-      if (openedPanel) closeOpenedTranscript();
+      if (openedPanel) closeOpenedTranscript(panel);
     }
   }
 
-  function closeOpenedTranscript() {
+  // Close only the panel this extraction opened. The modern panel labels its
+  // control "Close"; the legacy one uses "Close transcript". Searching inside
+  // the panel keeps a generic "Close" elsewhere on the page from matching.
+  function closeOpenedTranscript(panel) {
     try {
-      const candidates = document.querySelectorAll('button, [role="button"]');
+      const candidates = panel?.querySelectorAll('button, [role="button"]') || [];
       for (const candidate of candidates) {
-        const name = `${candidate.getAttribute?.('aria-label') || ''} ${candidate.getAttribute?.('title') || ''}`;
-        if (/close\s+transcript/i.test(name) && candidate.getClientRects?.().length) {
+        const names = [candidate.getAttribute?.('aria-label'), candidate.getAttribute?.('title')];
+        if (names.some(name => /^\s*close(\s+transcript)?\s*$/i.test(name || '')) && candidate.getClientRects?.().length) {
           triggerClick(candidate);
           return;
         }

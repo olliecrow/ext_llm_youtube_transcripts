@@ -467,35 +467,72 @@ test('keeps an empty caption response and a failed transcript call from hiding l
   });
 });
 
-test('closes a transcript panel this extraction opened', async () => {
-  let opened = false;
-  const empty = transcriptPanel([]);
-  const populated = transcriptPanel([transcriptSegment('Opened row.')]);
-  const trigger = { getClientRects: () => [1], click() { opened = true; } };
-  const close = {
-    clicked: false,
-    getAttribute: name => name === 'aria-label' ? 'Close transcript' : '',
-    getClientRects: () => [1],
-    click() { this.clicked = true; }
+// Models the saved panels: rows and controls are visible only while their
+// panel is expanded, and a panel's own close control hides it.
+function closeControlsPage() {
+  const html = fs.readFileSync(path.join(__dirname, 'fixtures', 'watch-close-controls.html'), 'utf8');
+  const expanded = 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
+  const isOpen = panel => panel.visibility === expanded;
+  const button = (attrs, onClick, visible) => {
+    const getAttribute = name => attrs.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1] ?? null;
+    return { clicks: 0, getAttribute, getClientRects: () => visible() ? [1] : [], click() { this.clicks++; onClick?.(); } };
   };
-  await withPage({
+  const panels = [...html.matchAll(/<ytd-engagement-panel-section-list-renderer target-id="([^"]+)" visibility="([^"]+)">([\s\S]*?)<\/ytd-engagement-panel-section-list-renderer>/g)]
+    .map(([, id, visibility, body]) => {
+      const panel = { id, visibility, scrollTop: 0, clientHeight: 300, contains: () => true };
+      panel.getAttribute = name => name === 'visibility' ? panel.visibility : name === 'target-id' ? id : null;
+      panel.rows = [...body.matchAll(/<span[^>]*>([^<]+)<\/span>/g)].map(match => transcriptSegment(match[1]));
+      panel.buttons = [...body.matchAll(/<button\b([^>]*)>/g)].map(([, attrs]) =>
+        button(attrs, /aria-label="Close/.test(attrs) ? () => { panel.visibility = 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'; } : null, () => isOpen(panel)));
+      panel.querySelector = selector => isOpen(panel) && selector.includes('transcript-segment') ? panel.rows[0] : null;
+      panel.querySelectorAll = selector => selector.includes('button') ? panel.buttons
+        : isOpen(panel) && selector.includes('transcript-segment') ? panel.rows : [];
+      return panel;
+    });
+  const modern = panels.find(panel => panel.id === 'PAmodern_transcript_view');
+  const legacy = panels.find(panel => panel.id === 'engagement-panel-searchable-transcript');
+  const showTranscript = button('', () => { modern.visibility = expanded; }, () => true);
+  // A visible generic close control outside the transcript panels.
+  const pageClose = button(' aria-label="Close"', null, () => true);
+  const page = {
     immediateTimers: true,
     querySelector: selector => {
-      if (selector.startsWith('button') || selector.includes('paper-item') || selector.includes('#expand')) {
-        return opened ? null : trigger;
-      }
-      if (selector.includes('engagement-panel') || selector.includes('transcript-segment')) {
-        return opened ? populated : empty;
-      }
+      if (selector.includes(',')) return panels.find(isOpen)?.rows[0] || null;
+      const target = selector.match(/target-id="([^"]+)"/)?.[1];
+      if (target) return panels.find(panel => panel.id === target) || null;
+      if (selector.startsWith('button[aria-label*="transcript"')) return legacy.buttons.find(b => /transcript/i.test(b.getAttribute('aria-label')));
+      if (selector === 'ytd-video-description-transcript-section-renderer button') return showTranscript;
       return null;
     },
-    querySelectorAll: selector => selector.includes('button') ? [close] : []
-  }, async () => {
+    querySelectorAll: selector => selector.includes('button') ? [pageClose, ...legacy.buttons, ...modern.buttons] : []
+  };
+  return { page, modern, legacy, showTranscript, pageClose };
+}
+
+test('closes the saved modern transcript panel this extraction opened', async () => {
+  const { page, modern, legacy, showTranscript, pageClose } = closeControlsPage();
+  await withPage(page, async () => {
     const result = await context.window.__testHooks.extractFromDOM();
-    assert.equal(result.transcript, 'Opened row.');
-    assert.equal(close.clicked, true);
-    assert.equal(populated.scrollTop, 0);
+    assert.equal(result.transcript, 'Fixture sentence 1.\nFixture sentence 2.\nFixture sentence 3.');
   });
+  assert.equal(showTranscript.clicks, 1);
+  assert.equal(modern.visibility, 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+  assert.equal(modern.buttons.find(b => b.getAttribute('aria-label') === 'Close').clicks, 1);
+  assert.ok(legacy.buttons.every(b => b.clicks === 0), 'the hidden legacy panel is not touched');
+  assert.equal(pageClose.clicks, 0, 'a close control outside the panel is not clicked');
+  assert.equal(modern.scrollTop, 0);
+});
+
+test('leaves the saved modern transcript panel open when it was already open', async () => {
+  const { page, modern, showTranscript } = closeControlsPage();
+  modern.visibility = 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
+  await withPage(page, async () => {
+    const result = await context.window.__testHooks.extractFromDOM();
+    assert.equal(result.transcript.split('\n').length, 3);
+  });
+  assert.equal(showTranscript.clicks, 0);
+  assert.equal(modern.visibility, 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+  assert.ok(modern.buttons.every(b => b.clicks === 0));
 });
 
 test('leaves an already open transcript panel open', async () => {
