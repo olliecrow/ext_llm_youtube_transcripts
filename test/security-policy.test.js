@@ -222,3 +222,29 @@ test('gitleaks accepts empty and deletion-only ranges', { skip: !hasGitleaks }, 
     }
   });
 });
+
+test('shell policy rejects JSON assignments and modern token formats', () => {
+  const value = 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5';
+  const samples = [JSON.stringify({ ['tok' + 'en']: value }),
+    ...['sk-ant-oat01-', 'sk-ant-api03-', 'sk-proj-', 'ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_'].map(prefix => prefix + value),
+    ['ey' + 'JhbGciOiJIUzI1NiJ9', 'ey' + 'JzdWIiOiJmaXh0dXJlIn0', value].join('.')];
+  withTempDir(dir => {
+    for (const sample of samples) assert.equal(scanText(dir, sample).status, 1, 'token format must be blocked');
+  });
+});
+
+test('gitleaks path policy reports home paths and preserves exact placeholders', { skip: !hasGitleaks }, () => {
+  withTempDir(dir => {
+    const config = path.join(scripts, '..', '..', '.gitleaks.toml');
+    for (const [text, expected] of [
+      [unix('alice'), 1], [unix('userbob'), 1], [mac('YOUNG'), 1],
+      [win('alice', '\\'), 1], [win('alice', '\\\\'), 1],
+      [`${mac('YOU')} ${unix('alice')}`, 1],
+      [`${mac('YOU')} ${unix('user')} ${win('USERNAME', '\\')}`, 0]
+    ]) {
+      fs.writeFileSync(path.join(dir, 'sample.txt'), text);
+      const result = spawnSync('gitleaks', ['dir', '--no-banner', '--redact', '--config', config, dir], { encoding: 'utf8', env: env() });
+      assert.equal(result.status, expected, result.stdout + result.stderr);
+    }
+  });
+});
