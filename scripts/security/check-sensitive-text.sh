@@ -50,10 +50,11 @@ for target in "$@"; do
   secret_assignment_matches="$(search_pattern "$secret_assignment_regex" "$target")"
   known_token_matches="$(search_pattern "$known_token_regex" "$target")"
 
-  matches="$(printf '%s\n%s\n%s\n' "$path_matches" "$secret_assignment_matches" "$known_token_matches" | sed '/^$/d' | sort -u)"
+  email_matches="$(grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$target" | grep -vE '@users\.noreply\.github\.com$' || true)"
+  matches="$(printf '%s\n%s\n%s\n%s\n' "$path_matches" "$secret_assignment_matches" "$known_token_matches" "$email_matches" | sed '/^$/d' | sort -u)"
   if [[ -n "$matches" ]]; then
     echo "policy violation in ${context}: ${target}" >&2
-    echo "$matches" >&2
+    echo "Sensitive text found; values omitted." >&2
     failed=1
   fi
 done

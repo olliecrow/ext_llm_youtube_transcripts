@@ -18,6 +18,10 @@ bash -n validate.sh scripts/security/check-push-range.sh scripts/security/check-
 echo "Checking manifest and icons..."
 node <<'NODE'
 const fs = require('node:fs');
+if (Number(process.versions.node.split('.')[0]) < 20) {
+  console.error('Node 20 or newer is required');
+  process.exit(1);
+}
 
 function fail(message) {
   console.error(message);
@@ -82,6 +86,17 @@ NODE
 echo "Checking JavaScript syntax..."
 node --check background.js
 node --check content.js
+
+echo "Checking script and sensitive-text policy..."
+if grep -nE 'eval[[:space:]]*\(|new Function|innerHTML|outerHTML|document\.write' background.js content.js; then
+  echo "Unsafe script construction is not allowed" >&2
+  exit 1
+fi
+policy_files=()
+while IFS= read -r -d '' policy_file; do
+  policy_files+=("$policy_file")
+done < <(git ls-files -z -- '*.js' '*.json' '*.md' '*.html' '*.sh' '*.yml' '*.yaml')
+bash scripts/security/check-sensitive-text.sh --context=tree "${policy_files[@]}"
 
 echo "Running unit tests..."
 node --test test/*.test.js

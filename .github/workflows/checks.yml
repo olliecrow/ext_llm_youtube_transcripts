@@ -72,6 +72,19 @@ jobs:
             exit 1
           fi
 
+      - name: Self-test email policy
+        run: |
+          set -euo pipefail
+          tmp_email="$(mktemp)"
+          printf '%s@%s\n' 'contributor' 'users.noreply.github.com' > "$tmp_email"
+          bash scripts/security/check-sensitive-text.sh --context=email-selftest "$tmp_email"
+          printf '%s@%s\n' 'person' 'example.com' > "$tmp_email"
+          if bash scripts/security/check-sensitive-text.sh --context=email-selftest "$tmp_email"; then
+            echo "expected email policy failure did not occur" >&2
+            exit 1
+          fi
+          rm "$tmp_email"
+
       - name: Self-test sensitive text policy without ripgrep
         run: |
           set -euo pipefail

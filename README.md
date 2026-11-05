@@ -3,7 +3,7 @@
 A Chrome extension that exports transcripts from open YouTube tabs as Markdown
 files or copies the current transcript to the clipboard.
 
-Use at your own risk.
+YouTube page changes can break extraction.
 
 ## What this project is trying to achieve
 
@@ -30,7 +30,9 @@ Make transcript capture fast when you are researching across many YouTube videos
 - Batch export for all open YouTube tabs.
 - Right click menu for current tab export and clipboard copy.
 - Automatic tab switching when needed so extraction can run.
-- Local-only processing in your browser.
+- Transcript text stays in the browser and is written to a local file or the clipboard.
+  The extension requests caption data from YouTube for the open video with the
+  existing YouTube session. It does not send transcripts to another server.
 - Multiple extraction paths for better reliability.
 - Markdown output with metadata like title, channel, and links.
 - Coverage for standard videos, Shorts, and common YouTube URL formats.
@@ -93,7 +95,10 @@ No storage permission is used.
 ## Limitations
 
 - A video must have a transcript that YouTube makes available.
-- The first available caption track is exported; there is no language picker.
+- The visible transcript panel is tried first. Data fallbacks use the first caption track.
+- English UI labels are used to find the transcript control.
+- Embed pages can have no transcript UI.
+- Chrome can stop a batch that runs longer than 5 minutes.
 - If batch export switches tabs, it restores the previously active tab.
 - YouTube page changes can temporarily break one or more extraction paths.
 
@@ -111,4 +116,6 @@ Suggested flow.
 2. Open all sample videos and run batch export.
 3. Verify downloaded files include metadata and multiline transcripts.
 4. Spot check clipboard output for formatting.
-5. Run `./validate.sh` before committing code changes.
+5. Confirm the summary tooltip remains for 10 seconds and page scroll does not jump.
+6. Navigate between videos without reloading; confirm the output matches the current video.
+7. Run `./validate.sh` before committing code changes.
