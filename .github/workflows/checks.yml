@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Weekly security scan. Monday 06:17 UTC avoids the crowded top of the hour.
+    - cron: '17 6 * * 1'
 
 permissions:
   contents: read
@@ -50,13 +53,7 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
-          elif [[ "${PUSH_BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
-            range="${GITHUB_SHA}^!"
-          else
-            range="${PUSH_BEFORE_SHA}..${GITHUB_SHA}"
-          fi
+          range="$(bash scripts/security/resolve-commit-range.sh)"
           gitleaks git --redact --verbose --config .gitleaks.toml --log-opts="${range}"
 
       - name: Self-test sensitive text policy patterns
@@ -102,14 +99,7 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
-          elif [[ "${PUSH_BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
-            range="${GITHUB_SHA}^!"
-          else
-            range="${PUSH_BEFORE_SHA}..${GITHUB_SHA}"
-          fi
-
+          range="$(bash scripts/security/resolve-commit-range.sh)"
           temp_file="$(mktemp)"
           git log --format='%H%n%s%n%b%n' "${range}" > "${temp_file}"
           bash scripts/security/check-sensitive-text.sh --context=commit-message "${temp_file}"

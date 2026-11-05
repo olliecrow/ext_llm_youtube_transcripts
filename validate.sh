@@ -13,7 +13,7 @@ for file in manifest.json background.js content.js README.md LICENSE SECURITY.md
 done
 
 echo "Checking shell syntax..."
-bash -n validate.sh scripts/security/check-push-range.sh scripts/security/check-sensitive-text.sh
+bash -n validate.sh scripts/security/check-push-range.sh scripts/security/check-sensitive-text.sh scripts/security/resolve-commit-range.sh
 
 echo "Checking manifest and icons..."
 node <<'NODE'
