@@ -467,6 +467,56 @@ test('keeps an empty caption response and a failed transcript call from hiding l
   });
 });
 
+test('closes a transcript panel this extraction opened', async () => {
+  let opened = false;
+  const empty = transcriptPanel([]);
+  const populated = transcriptPanel([transcriptSegment('Opened row.')]);
+  const trigger = { getClientRects: () => [1], click() { opened = true; } };
+  const close = {
+    clicked: false,
+    getAttribute: name => name === 'aria-label' ? 'Close transcript' : '',
+    getClientRects: () => [1],
+    click() { this.clicked = true; }
+  };
+  await withPage({
+    immediateTimers: true,
+    querySelector: selector => {
+      if (selector.startsWith('button') || selector.includes('paper-item') || selector.includes('#expand')) {
+        return opened ? null : trigger;
+      }
+      if (selector.includes('engagement-panel') || selector.includes('transcript-segment')) {
+        return opened ? populated : empty;
+      }
+      return null;
+    },
+    querySelectorAll: selector => selector.includes('button') ? [close] : []
+  }, async () => {
+    const result = await context.window.__testHooks.extractFromDOM();
+    assert.equal(result.transcript, 'Opened row.');
+    assert.equal(close.clicked, true);
+    assert.equal(populated.scrollTop, 0);
+  });
+});
+
+test('leaves an already open transcript panel open', async () => {
+  const panel = transcriptPanel([transcriptSegment('Already open.')]);
+  const close = {
+    clicked: false,
+    getAttribute: () => 'Close transcript',
+    getClientRects: () => [1],
+    click() { this.clicked = true; }
+  };
+  await withPage({
+    immediateTimers: true,
+    querySelector: selector => selector.includes('engagement-panel') || selector.includes('transcript-segment') ? panel : null,
+    querySelectorAll: () => [close]
+  }, async () => {
+    const result = await context.window.__testHooks.extractFromDOM();
+    assert.equal(result.transcript, 'Already open.');
+    assert.equal(close.clicked, false);
+  });
+});
+
 test('continues extraction when one method throws without a message', async () => {
   await withPage({
     querySelector: () => { throw Object.create(null); },

@@ -602,57 +602,78 @@
       const panels = selectors.panels.map(selector => document.querySelector(selector)).filter(Boolean);
       return panels.find(panel => panel.querySelector(selectors.segments.join(', '))) || panels.find(panel => panel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') || panels[0];
     };
+    let openedPanel = false;
     let panel = findPanel();
     let segments = panel?.querySelectorAll(selectors.segments.join(', '));
-    if (!segments?.length) {
-      let trigger = findTranscriptTrigger();
-      if (!trigger) {
-        const expand = document.querySelector('#description-inline-expander #expand');
-        if (expand?.getClientRects().length) {
-          triggerClick(expand);
-          await new Promise(resolve => setTimeout(resolve, 200));
-          trigger = findTranscriptTrigger();
-        }
-      }
-      if (!trigger) throw new Error('No transcript button available for this video');
-      triggerClick(trigger);
-      // Wait for rows, not the hidden panel shell present before it is opened.
-      await waitForElement(selectors.panels.flatMap(p => selectors.segments.map(s => `${p} ${s}`)).join(', '), 5000);
-      panel = findPanel();
-    }
-    if (!panel) throw new Error('Transcript panel is unavailable');
-
-    const rows = new Map();
-    let previousCount = -1;
-    let unchanged = 0;
-    const firstSegment = panel.querySelector(selectors.segments.join(', '));
-    let scroller = firstSegment?.parentElement;
-    while (scroller && scroller !== panel && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
-    if (!scroller || !panel.contains(scroller)) scroller = panel;
-    const originalScroll = scroller.scrollTop;
     try {
-      for (let attempt = 0; attempt < 20; attempt++) {
-        segments = panel.querySelectorAll(selectors.segments.join(', '));
-        for (let index = 0; index < segments.length && rows.size < 10000; index++) {
-          const segment = segments[index];
-          const textNode = segment.querySelector(selectors.text);
-          const text = textNode ? textNode.textContent.replace(/\s+/g, ' ').trim() : cleanTranscriptLine(segment.textContent || '');
-          const timestamp = segment.querySelector('.segment-timestamp, .ytwTranscriptSegmentViewModelTimestamp')?.textContent?.trim();
-          const key = segment.getAttribute('data-start-ms') || `${timestamp || index}:${text}`;
-          if (text) rows.set(key, text);
+      if (!segments?.length) {
+        let trigger = findTranscriptTrigger();
+        if (!trigger) {
+          const expand = document.querySelector('#description-inline-expander #expand');
+          if (expand?.getClientRects().length) {
+            triggerClick(expand);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            trigger = findTranscriptTrigger();
+          }
         }
-        unchanged = rows.size === previousCount ? unchanged + 1 : 0;
-        if (unchanged >= 2 || rows.size >= 10000) break;
-        previousCount = rows.size;
-        scroller.scrollTop += Math.max(scroller.clientHeight, 400);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        if (!trigger) throw new Error('No transcript button available for this video');
+        triggerClick(trigger);
+        openedPanel = true;
+        // Wait for rows, not the hidden panel shell present before it is opened.
+        await waitForElement(selectors.panels.flatMap(p => selectors.segments.map(s => `${p} ${s}`)).join(', '), 5000);
+        panel = findPanel();
       }
+      if (!panel) throw new Error('Transcript panel is unavailable');
+
+      const rows = new Map();
+      let previousCount = -1;
+      let unchanged = 0;
+      const firstSegment = panel.querySelector(selectors.segments.join(', '));
+      let scroller = firstSegment?.parentElement;
+      while (scroller && scroller !== panel && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+      if (!scroller || !panel.contains(scroller)) scroller = panel;
+      const originalScroll = scroller.scrollTop;
+      try {
+        for (let attempt = 0; attempt < 20; attempt++) {
+          segments = panel.querySelectorAll(selectors.segments.join(', '));
+          for (let index = 0; index < segments.length && rows.size < 10000; index++) {
+            const segment = segments[index];
+            const textNode = segment.querySelector(selectors.text);
+            const text = textNode ? textNode.textContent.replace(/\s+/g, ' ').trim() : cleanTranscriptLine(segment.textContent || '');
+            const timestamp = segment.querySelector('.segment-timestamp, .ytwTranscriptSegmentViewModelTimestamp')?.textContent?.trim();
+            const key = segment.getAttribute('data-start-ms') || `${timestamp || index}:${text}`;
+            if (text) rows.set(key, text);
+          }
+          unchanged = rows.size === previousCount ? unchanged + 1 : 0;
+          if (unchanged >= 2 || rows.size >= 10000) break;
+          previousCount = rows.size;
+          scroller.scrollTop += Math.max(scroller.clientHeight, 400);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } finally {
+        scroller.scrollTop = originalScroll;
+      }
+      const lines = [...rows.values()];
+      if (!lines.length) throw new Error('No transcript rows available for this video');
+      return { transcript: lines.join('\n'), source: 'dom' };
     } finally {
-      scroller.scrollTop = originalScroll;
+      if (openedPanel) closeOpenedTranscript();
     }
-    const lines = [...rows.values()];
-    if (!lines.length) throw new Error('No transcript rows available for this video');
-    return { transcript: lines.join('\n'), source: 'dom' };
+  }
+
+  function closeOpenedTranscript() {
+    try {
+      const candidates = document.querySelectorAll('button, [role="button"]');
+      for (const candidate of candidates) {
+        const name = `${candidate.getAttribute?.('aria-label') || ''} ${candidate.getAttribute?.('title') || ''}`;
+        if (/close\s+transcript/i.test(name) && candidate.getClientRects?.().length) {
+          triggerClick(candidate);
+          return;
+        }
+      }
+    } catch {
+      // A missing close control must not fail an export that already has rows.
+    }
   }
 
   function extractTextFromDomSegments(segmentTexts) {
