@@ -15,7 +15,7 @@
   let cachedYouTubeConfig = null;
   let cachedInitialData = null;
 
-  const NETWORK_TIMEOUT_MS = 30000;
+  const NETWORK_TIMEOUT_MS = 10000;
   
   // Custom error class
   class ExtensionError extends Error {
@@ -265,15 +265,8 @@
       // Required: title
       metadata.title = playerResponse?.videoDetails?.title;
       if (!metadata.title) {
-        // Try alternative sources with Shorts support
-        // Different selectors for Shorts vs regular videos
-        if (isYouTubeShorts()) {
-          metadata.title = document.querySelector('h2.ytd-reel-video-title-view-model yt-formatted-string')?.textContent?.trim() ||
-                          document.querySelector('.ytd-reel-player-header-renderer h2')?.textContent?.trim();
-        } else {
-          metadata.title = document.querySelector('h1.ytd-watch-metadata yt-formatted-string')?.textContent?.trim() ||
-                          document.querySelector('h1.ytd-video-primary-info-renderer')?.textContent?.trim();
-        }
+        metadata.title = document.title?.replace(/ - YouTube$/, '').trim() ||
+          document.querySelector('h1.ytd-watch-metadata yt-formatted-string, h2.ytd-reel-player-header-renderer')?.textContent?.trim();
       }
       
       if (!metadata.title) {
@@ -353,6 +346,15 @@
     return null;
   }
   
+  function isAllowedCaptionUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+        ['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname) &&
+        url.pathname === '/api/timedtext';
+    } catch { return false; }
+  }
+
   async function extractFromCaptionTracks() {
     try {
       // Get player response from page
@@ -372,9 +374,8 @@
       
       // Construct JSON3 format URL
       const url = new URL(track.baseUrl);
-      if (!url.searchParams.has('fmt')) {
-        url.searchParams.set('fmt', 'json3');
-      }
+      if (!isAllowedCaptionUrl(url.toString())) throw new Error('Unsupported caption URL');
+      url.searchParams.set('fmt', 'json3');
       
       // Fetch caption data
       const response = await fetchWithTimeout(url.toString(), {
@@ -423,27 +424,21 @@
     }
     
     const lines = [];
-    
     for (const event of data.events) {
-      if (!event.segs || !Array.isArray(event.segs)) {
-        continue;
-      }
-      
-      const lineText = event.segs
-        .map(seg => seg.utf8 || '')
-        .join('')
-        .trim();
-      
-      if (lineText) {
-        lines.push(lineText.replace(/\s+/g, ' ').trim());
-      }
+      if (!Array.isArray(event.segs)) continue;
+      const text = event.segs.map(seg => seg.utf8 || '').join('');
+      if (!text) continue;
+      const parts = text.split('\n');
+      if (event.aAppend && lines.length) lines[lines.length - 1] += parts.shift();
+      lines.push(...parts);
     }
-    
-    if (lines.length === 0) {
+    const normalized = lines.map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+    if (normalized.length === 0) {
       throw new Error('Transcript data empty');
     }
 
-    return lines.join('\n').trim();
+    return normalized.join('\n');
   }
   
   async function extractFromInnertube() {
@@ -486,7 +481,7 @@
       
       // Make API request
       const response = await fetchWithTimeout(
-        `https://www.youtube.com/youtubei/v1/get_transcript?key=${config.apiKey}`,
+        `https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(config.apiKey)}`,
         {
           method: 'POST',
           headers: {
@@ -580,7 +575,7 @@
       // Try to get language from page or use default
       const lang = document.documentElement.lang?.split('-')[0] || 'en';
       
-      const url = `https://www.youtube.com/api/timedtext?lang=${lang}&v=${videoId}`;
+      const url = `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(lang)}&v=${encodeURIComponent(videoId)}`;
       
       const response = await fetchWithTimeout(url, {
         credentials: 'include'
@@ -588,7 +583,7 @@
       
       if (!response.ok) {
         // Try without language parameter
-        const urlNoLang = `https://www.youtube.com/api/timedtext?v=${videoId}`;
+        const urlNoLang = `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}`;
         const response2 = await fetchWithTimeout(urlNoLang, { credentials: 'include' }, NETWORK_TIMEOUT_MS);
         
         if (!response2.ok) {
@@ -730,7 +725,7 @@
 
     const transcriptLines = [];
     for (const line of lines.slice(transcriptStart + 1)) {
-      if (/^(All|Related|For you|Recently uploaded|From .+)$/i.test(line)) {
+      if ((/^(All|Related|For you|Recently uploaded|People also watched|Explore more)$/i.test(line) || (/^From /i.test(line) && !/[.?!]/.test(line) && line.length <= 80 && line.split(/\s+/).length <= 8))) {
         break;
       }
 
@@ -752,7 +747,7 @@
       .replace(/\s+/g, ' ')
       .trim()
       .replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/i, '')
-      .replace(/^(?:\d+\s+hour[s]?,\s*)?(?:\d+\s+minute[s]?,\s*)?\d+\s+second[s]?\s*/i, '')
+      .replace(/^(?:\d+\s+hours?,\s*)?(?:\d+\s+minutes?,\s*)?\d+\s+seconds?(?!s|\s|$)/i, '')
       .trim();
   }
   
@@ -1008,7 +1003,7 @@
     return null;
   }
     
-  function formatPublishDate(dateString) {
+  function formatPublishDate(dateString, now = new Date()) {
     if (!dateString) return null;
     
     try {
@@ -1046,10 +1041,9 @@
         return null;
       }
       
-      const now = new Date();
       const youtubeStart = new Date('2005-01-01');
       
-      if (date < youtubeStart || date > now) {
+      if (date < youtubeStart || date.getTime() > now.getTime() + 2 * 86400000) {
         console.warn('Date out of reasonable range:', dateString, '→', date.toISOString());
         return null;
       }
@@ -1178,13 +1172,12 @@
       return 'youtube-transcript';
     }
     
-    return filename
+    const clean = filename
       // Remove HTML tags if any
       .replace(/<[^>]*>/g, '')
       // Replace forbidden characters with dash
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
       // Handle Windows reserved names
-      .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i, '$1_')
       // Remove leading/trailing dots and spaces
       .replace(/^[\s.]+|[\s.]+$/g, '')
       // Collapse multiple dashes/spaces
@@ -1195,6 +1188,7 @@
       .replace(/-+$/, '')
       // Fallback if empty after sanitization
       || 'youtube-transcript';
+    return clean.replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/i, '$1_');
   }
   
 })();

@@ -7,6 +7,9 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    extractTextFromJson3,
+    isAllowedCaptionUrl,
+    formatPublishDate,
     collectTranscriptLines,
     cleanTranscriptLine,
     extractJsonBlock,
@@ -247,3 +250,26 @@ test('extracts visible transcript text when YouTube page data calls fail', () =>
     'the difference between being an investor and being a trader.'
   ]);
 });
+
+ test('preserves prose and sanitizes device filenames', () => {
+  const h = context.window.__testHooks;
+  for (const text of ['1 second is enough', '2 seconds later it broke']) assert.equal(h.cleanTranscriptLine(text), text);
+  for (const [input, output] of [[' CON ', 'CON_'], ['CON.', 'CON_'], ['CON.txt', 'CON_.txt'], ['aux.txt', 'aux_.txt']]) assert.equal(h.sanitizeFilename(input), output);
+  assert.deepEqual(Array.from(h.extractTranscriptFromVisibleText('Transcript\nSearch transcript\nFrom the beginning we knew this would be hard.\nAll')), ['From the beginning we knew this would be hard.']);
+ });
+ test('validates caption destinations', () => {
+  const h = context.window.__testHooks;
+  assert.equal(h.isAllowedCaptionUrl('https://www.youtube.com/api/timedtext?v=aaaaaaaaaaa'), true);
+  for (const url of ['http://www.youtube.com/api/timedtext', 'https://evil.example/api/timedtext', 'https://www.youtube.com/redirect', 'https://www.youtube.com.evil.example/api/timedtext']) assert.equal(h.isAllowedCaptionUrl(url), false);
+ });
+ test('joins JSON3 append events and preserves explicit line breaks', () => {
+  const parse = context.window.__testHooks.extractTextFromJson3;
+  assert.equal(parse({events: [{segs: [{utf8: 'hello'}]}, {aAppend: true, segs: [{utf8: ' world\nnext'}]}, {segs: [{utf8: '  '}]}]}), 'hello world\nnext');
+  assert.throws(() => parse({}), /Invalid JSON3/);
+  assert.throws(() => parse({events: [{segs: [{utf8: '  '}]}]}), /Transcript data empty/);
+ });
+ test('allows dates up to two days ahead', () => {
+  const format = context.window.__testHooks.formatPublishDate;
+  assert.ok(format('2026-11-06', new Date('2026-11-05T12:00:00Z')));
+  assert.equal(format('2026-11-09', new Date('2026-11-05T12:00:00Z')), null);
+ });
