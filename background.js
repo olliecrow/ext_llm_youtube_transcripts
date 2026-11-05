@@ -85,7 +85,7 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
       files: ['content.js']
     });
 
-    extractionPromise = waitForExtraction(tabId, mode === 'markdown' ? 45000 : 20000);
+    extractionPromise = waitForExtraction(tabId, 45000);
 
     await chrome.tabs.sendMessage(tabId, {
       type: 'START_EXTRACTION',
@@ -142,9 +142,12 @@ chrome.runtime.onConnect.addListener(port => {
     port.disconnect();
     return;
   }
+  const pending = pendingExtractions.get(port.sender.tab.id);
   port.onMessage.addListener(() => { /* Messages reset the worker idle timer. */ });
   port.onDisconnect.addListener(() => {
-    settlePendingExtraction(port.sender.tab.id, new Error('Extraction interrupted'));
+    if (pending && pendingExtractions.get(port.sender.tab.id) === pending) {
+      settlePendingExtraction(port.sender.tab.id, new Error('Extraction interrupted'));
+    }
   });
 });
 
@@ -357,11 +360,6 @@ function waitForExtraction(tabId, timeout = 30000) { // Default 30 seconds
     // Store promise resolvers for event-driven completion
     pendingExtractions.set(tabId, { resolve, reject, timeoutId });
   });
-}
-
-function videoIdFromUrl(value) {
-  const url = new URL(value);
-  return url.searchParams.get('v') || url.pathname.split('/').filter(Boolean).pop();
 }
 
 async function readPlayerSnapshot(tabId) {

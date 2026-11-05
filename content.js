@@ -105,7 +105,7 @@
   
   async function performExtraction(mode, snapshot) {
     extractionInProgress = true;
-    currentSnapshot = normalizeVideoId(snapshot?.videoId) === extractVideoId() ? snapshot : null;
+    currentSnapshot = acceptSnapshot(snapshot);
     cachedPlayerResponse = null;
     cachedYouTubeConfig = null;
     cachedInitialData = null;
@@ -240,10 +240,10 @@
     return /^[A-Za-z0-9_-]{11}$/.test(value) ? value : null;
   }
 
-  function isYouTubeShorts() {
-    return window.location.pathname.startsWith('/shorts/');
+  function acceptSnapshot(snapshot) {
+    return normalizeVideoId(snapshot?.videoId) === extractVideoId() && snapshot?.videoId ? snapshot : null;
   }
-  
+
   async function extractMetadata() {
     const metadata = {
       title: null,
@@ -315,7 +315,8 @@
       extractFromDOM,
       extractFromCaptionTracks,
       extractFromInnertube,
-      extractFromTimedText
+      extractFromTimedText,
+      extractFromVisibleText
     ];
     
     for (const method of methods) {
@@ -681,6 +682,11 @@
     return segmentTexts
       .map(cleanTranscriptLine)
       .filter(text => text.length > 0);
+  }
+
+  async function extractFromVisibleText() {
+    const lines = extractTranscriptFromVisibleText(document.body?.innerText || '');
+    return lines.length ? { transcript: lines.join('\n'), source: 'visibleText' } : null;
   }
 
   function extractTranscriptFromVisibleText(text) {
@@ -1149,7 +1155,6 @@
       .replace(/<[^>]*>/g, '')
       // Replace forbidden characters with dash
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
-      // Handle Windows reserved names
       // Remove leading/trailing dots and spaces
       .replace(/^[\s.]+|[\s.]+$/g, '')
       // Collapse multiple dashes/spaces

@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const backgroundScript = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
 let runtimeMessageListener;
+let runtimeConnectListener;
 
 const context = {
   chrome: {
@@ -25,7 +26,7 @@ const context = {
     runtime: {
       id: "test-extension",
       getManifest: () => ({ action: { default_title: "Export" } }),
-      onConnect: { addListener() {} },
+      onConnect: { addListener(listener) { runtimeConnectListener = listener; } },
       onInstalled: { addListener() {} },
       onMessage: {
         addListener(listener) {
@@ -209,4 +210,17 @@ test('batch retries a loaded tab once with activation', async () => {
  await context.exportAllYouTubeTabs();
  assert.equal(attempts, 2);
  assert.deepEqual(activations, [tab.id, original.id]);
+});
+
+test('a previous port disconnect cannot cancel a later extraction', async () => {
+ const first = context.waitForExtraction(601, 1000);
+ let disconnect;
+ runtimeConnectListener({ name: 'yt-transcript', sender: {id: 'test-extension', tab: {id: 601, url: 'https://www.youtube.com/watch?v=kxpbdFMgPJ4'}}, onMessage: {addListener() {}}, onDisconnect: {addListener(listener) {disconnect = listener;}} });
+ context.settlePendingExtraction(601);
+ await first;
+ const second = context.waitForExtraction(601, 1000);
+ disconnect();
+ assert.equal(vm.runInContext('pendingExtractions.has(601)', context), true);
+ context.settlePendingExtraction(601);
+ await second;
 });

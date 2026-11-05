@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    acceptSnapshot,
     getPlayerResponse,
     transcriptDomSelectors,
     extractFromDOM,
@@ -310,4 +311,11 @@ test('reads saved logged-out modern watch rows ahead of the hidden searchable sh
   assert.equal(result.transcript.split('\n')[0], 'Fixture sentence 1.');
   assert.equal(panel.scrollTop, 0);
  } finally {context.document.querySelector = oldQuery;}
+});
+
+test('accepts only the current video snapshot', () => {
+ const snapshot = {videoId: 'kxpbdFMgPJ4', title: 'Current'};
+ assert.equal(context.window.__testHooks.acceptSnapshot(snapshot), snapshot);
+ assert.equal(context.window.__testHooks.acceptSnapshot({videoId: 'dQw4w9WgXcQ'}), null);
+ assert.equal(context.window.__testHooks.acceptSnapshot(null), null);
 });
