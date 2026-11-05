@@ -34,12 +34,15 @@ if [[ "$#" -eq 0 ]]; then
   # An all-zero target deletes a ref. Nothing new is sent.
   [[ "$to_ref" != "$zero_ref" ]] || exit 0
   if [[ -z "$from_ref" || "$from_ref" == "$zero_ref" ]]; then
-    exclusions=()
+    # Two commands, not an array: bash before 4.4 treats "${array[@]}" as
+    # unbound when the array is empty and set -u is on.
     if [[ -n "${PRE_COMMIT_REMOTE_NAME:-}" ]]; then
-      exclusions=(--not "--remotes=${PRE_COMMIT_REMOTE_NAME}")
+      commit_list="$(git rev-list "$to_ref" --not "--remotes=${PRE_COMMIT_REMOTE_NAME}")" ||
+        die "unable to list commits for the push range"
+    else
+      commit_list="$(git rev-list "$to_ref")" ||
+        die "unable to list commits for the push range"
     fi
-    commit_list="$(git rev-list "$to_ref" "${exclusions[@]}")" ||
-      die "unable to list commits for the push range"
   else
     [[ "$from_ref" =~ $sha_regex ]] || die "push base is not a full commit ID"
     commit_list="$(git rev-list "${from_ref}..${to_ref}")" ||

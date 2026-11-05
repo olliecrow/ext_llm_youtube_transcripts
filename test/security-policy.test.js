@@ -176,6 +176,23 @@ for (const shape of ['NUL', 'new attribute', 'parent attribute', 'later attribut
   });
 }
 
+test('zero-base scan without a remote name works with an empty exclusion list', () => {
+  withTempDir(cwd => {
+    git(cwd, ['init', '-q', '-b', 'main']);
+    const head = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+    const cases = [
+      { PRE_COMMIT_FROM_REF: '0'.repeat(40), PRE_COMMIT_TO_REF: head },
+      { PRE_COMMIT_FROM_REF: '0'.repeat(40), PRE_COMMIT_TO_REF: head, PRE_COMMIT_REMOTE_NAME: '' },
+      { PRE_COMMIT_LOCAL_BRANCH: 'refs/heads/main' }
+    ];
+    for (const extra of cases) {
+      const result = run(rangeScript, [], { cwd, env: extra });
+      assert.equal(result.status, 0, `${JSON.stringify(extra)}\n${result.stderr}`);
+      assert.equal(result.stderr.includes('unbound variable'), false);
+    }
+  });
+});
+
 test('zero-base pushes do not exclude commits on unrelated remotes', () => {
   withTempDir(cwd => {
     git(cwd, ['init', '-q', '-b', 'main']);
