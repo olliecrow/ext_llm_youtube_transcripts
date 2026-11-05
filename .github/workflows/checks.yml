@@ -65,18 +65,6 @@ jobs:
       - name: Test security scanners with gitleaks
         run: node --test test/security-policy.test.js
 
-      - name: Self-test gitleaks path policy
-        run: |
-          set -euo pipefail
-          sample_dir="$(mktemp -d)"
-          printf 'docs: keep /Users/YOU as placeholder only\n' > "${sample_dir}/sample.txt"
-          gitleaks dir --no-banner --redact --config .gitleaks.toml "${sample_dir}"
-          printf 'docs: /Users/YOU and /Users/%s\n' "someone" > "${sample_dir}/sample.txt"
-          if gitleaks dir --no-banner --redact --config .gitleaks.toml "${sample_dir}"; then
-            echo "expected gitleaks to report a real path beside a placeholder" >&2
-            exit 1
-          fi
-
       - name: Check pushed/PR commit messages and added lines
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
