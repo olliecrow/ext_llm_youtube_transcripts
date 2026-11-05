@@ -11,7 +11,7 @@ config="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.gitleaks.toml"
 log_file="$(mktemp)"
 trap 'rm -- "$log_file"' EXIT
 status=0
-gitleaks git --no-banner --no-color --redact --config "$config" \
+gitleaks git --no-banner --no-color --redact --verbose --config "$config" \
   --log-opts="--text --no-textconv --no-ext-diff --diff-merges=first-parent ${range}" \
   >"$log_file" 2>&1 || status=$?
 cat "$log_file"

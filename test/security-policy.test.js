@@ -198,6 +198,39 @@ test('zero-base pushes do not exclude commits on unrelated remotes', () => {
   });
 });
 
+test('gitleaks wrapper keeps verbose redacted output', () => {
+  withTempDir(cwd => {
+    git(cwd, ['init', '-q', '-b', 'main']);
+    const head = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+    const bin = path.join(cwd, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gitleaks'), [
+      '#!/bin/sh',
+      'printf "%s\\n" "$*" > args.txt',
+      'echo "INF 1 commits scanned"',
+      'echo "INF no leaks found"',
+      'exit 0'
+    ].join('\n'), { mode: 0o755 });
+    const clean = run(leaksScript, [head], { cwd, env: { PATH: `${bin}:${process.env.PATH}` } });
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    const args = fs.readFileSync(path.join(cwd, 'args.txt'), 'utf8');
+    assert.match(args, /(^|\s)--verbose(\s|$)/);
+    assert.match(args, /(^|\s)--redact(\s|$)/);
+
+    fs.writeFileSync(path.join(bin, 'gitleaks'), [
+      '#!/bin/sh',
+      'echo "Finding: rule=generic file=notes.txt commit=abc"',
+      'echo "WRN leaks found: 1"',
+      'exit 1'
+    ].join('\n'), { mode: 0o755 });
+    const leak = run(leaksScript, [head], { cwd, env: { PATH: `${bin}:${process.env.PATH}` } });
+    assert.equal(leak.status, 1, leak.stdout + leak.stderr);
+    assert.match(leak.stdout, /rule=generic/);
+    assert.match(leak.stdout, /file=notes.txt/);
+    assert.match(leak.stdout, /commit=abc/);
+  });
+});
+
 test('gitleaks wrapper rejects logged errors and silent zero-commit scans', () => {
   withTempDir(cwd => {
     git(cwd, ['init', '-q', '-b', 'main']);
