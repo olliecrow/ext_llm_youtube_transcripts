@@ -212,6 +212,17 @@ test('batch retries a loaded tab once with activation', async () => {
  assert.deepEqual(activations, [tab.id, original.id]);
 });
 
+test('explains a batch with no open YouTube videos', async () => {
+  const current = { id: 701, url: 'https://example.com/', status: 'complete' };
+  const titles = [];
+  context.chrome.tabs.query = async query => query.active ? [current] : [current];
+  context.chrome.action.setTitle = details => { titles.push(details.title); };
+  context.chrome.action.setBadgeText = () => {};
+  context.chrome.action.setBadgeBackgroundColor = () => {};
+  await context.exportAllYouTubeTabs();
+  assert.ok(titles.includes('No open YouTube videos to export'));
+});
+
 test('a previous port disconnect cannot cancel a later extraction', async () => {
  const first = context.waitForExtraction(601, 1000);
  let disconnect;

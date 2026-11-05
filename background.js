@@ -194,7 +194,7 @@ async function exportAllYouTubeTabs() {
       // No YouTube tabs found - show error on current tab if possible
       const [currentTab] = await chrome.tabs.query({active: true, currentWindow: true});
       if (currentTab) {
-        showBadge(currentTab.id, "!", "#FF0000", 3000);
+        showBadge(currentTab.id, "!", "#FF0000", 3000, "No open YouTube videos to export");
 
       }
       return;
