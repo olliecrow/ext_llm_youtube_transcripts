@@ -984,56 +984,55 @@
   }
     
   function formatPublishDate(dateString, now = new Date()) {
-    if (!dateString) return null;
-    
+    if (!dateString || typeof dateString !== 'string') return null;
+
     try {
+      const trimmed = dateString.trim();
       let date = null;
-      
-      // Handle various date formats that YouTube might provide
-      if (typeof dateString === 'string') {
-        dateString = dateString.trim();
-      }
-      
-      // Try different parsing strategies
-      if (dateString.includes('-') || dateString.includes('/')) {
-        // ISO format (2024-01-15), US format (01/15/2024), etc.
-        date = new Date(dateString);
-      } else if (/^\d+$/.test(dateString)) {
-        // Pure numeric timestamp
-        const timestamp = parseInt(dateString);
-        
-        // Handle both seconds and milliseconds timestamps
+      // YYYY-MM-DD is a calendar day, not a UTC instant. Formatting it in a
+      // zone west of UTC would otherwise show the previous day.
+      let calendarDate = false;
+
+      const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+      if (dateOnly) {
+        const year = Number(dateOnly[1]);
+        const month = Number(dateOnly[2]);
+        const day = Number(dateOnly[3]);
+        date = new Date(Date.UTC(year, month - 1, day));
+        calendarDate = date.getUTCFullYear() === year &&
+          date.getUTCMonth() === month - 1 &&
+          date.getUTCDate() === day;
+        if (!calendarDate) {
+          console.warn('Invalid date format:', trimmed);
+          return null;
+        }
+      } else if (trimmed.includes('-') || trimmed.includes('/')) {
+        date = new Date(trimmed);
+      } else if (/^\d+$/.test(trimmed)) {
+        const timestamp = parseInt(trimmed, 10);
         if (timestamp > 1e12) {
-          // Milliseconds timestamp (13+ digits)
           date = new Date(timestamp);
         } else if (timestamp > 1e9) {
-          // Seconds timestamp (10+ digits)
           date = new Date(timestamp * 1000);
         }
       } else {
-        // Try parsing as-is (handles many natural formats)
-        date = new Date(dateString);
+        date = new Date(trimmed);
       }
-      
-      // Validate date is reasonable (not before 2005 when YouTube started, not in future)
-      if (!date || isNaN(date.getTime())) {
-        console.warn('Invalid date format:', dateString);
+
+      if (!date || Number.isNaN(date.getTime())) {
+        console.warn('Invalid date format:', trimmed);
         return null;
       }
-      
-      const youtubeStart = new Date('2005-01-01');
-      
-      if (date < youtubeStart || date.getTime() > now.getTime() + 2 * 86400000) {
-        console.warn('Date out of reasonable range:', dateString, '→', date.toISOString());
+
+      const earliest = Date.UTC(2005, 0, 1);
+      if (date.getTime() < earliest || date.getTime() > now.getTime() + 2 * 86400000) {
+        console.warn('Date out of reasonable range:', trimmed, '→', date.toISOString());
         return null;
       }
-      
-      // Format as readable date (e.g., "January 15, 2024")
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
+
+      const options = { year: 'numeric', month: 'long', day: 'numeric' };
+      if (calendarDate) options.timeZone = 'UTC';
+      return date.toLocaleDateString('en-US', options);
     } catch (error) {
       console.warn('Failed to format publish date:', dateString, error);
       return null;

@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -274,11 +275,38 @@ test('extracts visible transcript text when YouTube page data calls fail', () =>
   assert.throws(() => parse({}), /Invalid JSON3/);
   assert.throws(() => parse({events: [{segs: [{utf8: '  '}]}]}), /Transcript data empty/);
  });
- test('allows dates up to two days ahead', () => {
+test('formats a date-only publish date as that calendar day', () => {
   const format = context.window.__testHooks.formatPublishDate;
-  assert.ok(format('2026-11-06', new Date('2026-11-05T12:00:00Z')));
-  assert.equal(format('2026-11-09', new Date('2026-11-05T12:00:00Z')), null);
- });
+  const now = new Date('2026-11-05T12:00:00Z');
+  assert.equal(format('2026-11-06', now), 'November 6, 2026');
+  assert.equal(format('2026-11-07', now), 'November 7, 2026');
+  assert.equal(format('2026-11-08', now), null);
+  assert.equal(format('2026-11-09', now), null);
+  assert.equal(format('2026-02-31', now), null);
+  assert.equal(format('2005-01-01', now), 'January 1, 2005');
+  assert.equal(format('2004-12-31', now), null);
+});
+
+test('keeps date-only publish dates on the same calendar day west and east of UTC', () => {
+  const contentPath = path.join(__dirname, '..', 'content.js');
+  const runner = path.join(__dirname, 'publish-date-tz.js');
+  const expectedInstant = {
+    'America/Los_Angeles': 'November 5, 2026',
+    'Asia/Tokyo': 'November 6, 2026'
+  };
+
+  for (const [tz, instant] of Object.entries(expectedInstant)) {
+    const run = spawnSync(process.execPath, [runner, contentPath], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH || '', TZ: tz }
+    });
+    assert.equal(run.status, 0, `${tz}\n${run.stdout}\n${run.stderr}`);
+    const parsed = JSON.parse(run.stdout);
+    assert.equal(parsed.dateOnly, 'November 6, 2026', tz);
+    assert.equal(parsed.slash, 'November 6, 2026', tz);
+    assert.equal(parsed.instant, instant, tz);
+  }
+});
 
 test('supports current and legacy panel and row selectors', () => {
  const selectors = context.window.__testHooks.transcriptDomSelectors();
