@@ -318,10 +318,10 @@
   
   async function extractTranscript(videoId) {
     const methods = [
+      extractFromDOM,
       extractFromCaptionTracks,
       extractFromInnertube,
-      extractFromTimedText,
-      extractFromDOM
+      extractFromTimedText
     ];
     
     for (const method of methods) {
@@ -637,66 +637,64 @@
     return lines.join('\n').trim();
   }
   
+  function transcriptDomSelectors() {
+    return {
+      panels: [
+        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
+        'ytd-engagement-panel-section-list-renderer[target-id="PAmodern_transcript_view"]',
+        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
+      ],
+      segments: ['ytd-transcript-segment-renderer', 'transcript-segment-view-model'],
+      text: '.segment-text, .ytwTranscriptSegmentViewModelSegment, span.ytAttributedStringHost'
+    };
+  }
+
   async function extractFromDOM() {
-    try {
-      let transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]');
-      let panelOpened = false;
-      const visibleTranscriptLines = extractTranscriptFromVisibleText(document.body?.innerText || '');
-
-      if (!transcriptPanel && visibleTranscriptLines.length > 0) {
-        return {
-          transcript: visibleTranscriptLines.join('\n').trim(),
-          source: 'visibleText'
-        };
-      }
-
-      if (!transcriptPanel) {
-        const moreActionsButton = document.querySelector('button[aria-label*="More actions" i], #button-shape button[aria-label*="More" i]');
-        if (moreActionsButton) {
-          triggerClick(moreActionsButton);
-          await new Promise(resolve => setTimeout(resolve, 400));
-        }
-
-        const transcriptTrigger = findTranscriptTrigger();
-        if (!transcriptTrigger) {
-          throw new Error('Transcript button not found');
-        }
-
-        triggerClick(transcriptTrigger);
-        panelOpened = true;
-
-        transcriptPanel = await waitForElement('ytd-transcript-segment-list-renderer, ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]', 5000);
-      }
-
-      const segmentContainer = transcriptPanel || document;
-      const segmentNodes = segmentContainer.querySelectorAll([
-        'ytd-transcript-segment-renderer',
-        'yt-formatted-string.ytd-transcript-segment-renderer'
-      ].join(', '));
-
-      const lines = segmentNodes.length > 0
-        ? extractTextFromDomSegments(Array.from(segmentNodes).map(segment => segment.textContent || ''))
-        : extractTranscriptFromVisibleText(document.body?.innerText || '');
-
-      if (lines.length === 0) {
-        throw new Error('No text extracted from DOM segments');
-      }
-
-      if (panelOpened) {
-        const closeButton = document.querySelector('ytd-engagement-panel-title-header-renderer button[aria-label*="Close" i]');
-        if (closeButton) {
-          triggerClick(closeButton);
-        }
-      }
-
-      return {
-        transcript: lines.join('\n').trim(),
-        source: 'dom'
-      };
-    } catch (error) {
-      console.warn('DOM extraction failed:', error);
-      throw error;
+    const selectors = transcriptDomSelectors();
+    const findPanel = () => selectors.panels.map(selector => document.querySelector(selector)).find(Boolean);
+    let panel = findPanel();
+    let segments = panel?.querySelectorAll(selectors.segments.join(', '));
+    if (!segments?.length) {
+      const trigger = findTranscriptTrigger();
+      if (!trigger) throw new Error('No transcript button available for this video');
+      triggerClick(trigger);
+      // Wait for rows, not the hidden panel shell present before it is opened.
+      await waitForElement(selectors.panels.flatMap(p => selectors.segments.map(s => `${p} ${s}`)).join(', '), 5000);
+      panel = findPanel();
     }
+    if (!panel) throw new Error('Transcript panel is unavailable');
+
+    const rows = new Map();
+    let previousCount = -1;
+    let unchanged = 0;
+    const firstSegment = panel.querySelector(selectors.segments.join(', '));
+    let scroller = firstSegment?.parentElement;
+    while (scroller && scroller !== panel && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+    if (!scroller || !panel.contains(scroller)) scroller = panel;
+    const originalScroll = scroller.scrollTop;
+    try {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        segments = panel.querySelectorAll(selectors.segments.join(', '));
+        for (let index = 0; index < segments.length && rows.size < 10000; index++) {
+          const segment = segments[index];
+          const textNode = segment.querySelector(selectors.text);
+          const text = textNode ? textNode.textContent.replace(/\s+/g, ' ').trim() : cleanTranscriptLine(segment.textContent || '');
+          const timestamp = segment.querySelector('.segment-timestamp, .ytwTranscriptSegmentViewModelTimestamp')?.textContent?.trim();
+          const key = segment.getAttribute('data-start-ms') || timestamp || String(index);
+          if (text) rows.set(key, text);
+        }
+        unchanged = rows.size === previousCount ? unchanged + 1 : 0;
+        if (unchanged >= 2 || rows.size >= 10000) break;
+        previousCount = rows.size;
+        scroller.scrollTop += Math.max(scroller.clientHeight, 400);
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    } finally {
+      scroller.scrollTop = originalScroll;
+    }
+    const lines = [...rows.values()];
+    if (!lines.length) throw new Error('No transcript rows available for this video');
+    return { transcript: lines.join('\n'), source: 'dom' };
   }
 
   function extractTextFromDomSegments(segmentTexts) {
@@ -788,15 +786,17 @@
 
     for (const selector of directSelectors) {
       const candidate = document.querySelector(selector);
-      if (candidate) {
+      if (candidate && candidate.getClientRects().length) {
         return candidate;
       }
     }
 
-    const menuItems = Array.from(document.querySelectorAll('ytd-menu-service-item-renderer'));
+    const descriptionButton = document.querySelector('ytd-video-description-transcript-section-renderer button');
+    if (descriptionButton?.getClientRects().length) return descriptionButton;
+    const menuItems = Array.from(document.querySelectorAll('button, ytd-menu-service-item-renderer'));
     for (const item of menuItems) {
-      const text = item.textContent?.toLowerCase() || '';
-      if (text.includes('transcript')) {
+      const text = `${item.getAttribute('aria-label') || ''} ${item.textContent || ''}`;
+      if (/transcript/i.test(text) && item.getClientRects().length) {
         const actionable = item.querySelector('tp-yt-paper-item, button, a');
         return actionable || item;
       }

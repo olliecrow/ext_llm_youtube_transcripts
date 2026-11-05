@@ -7,6 +7,8 @@ const vm = require('node:vm');
 const contentScript = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8')
   .replace(/\n\}\)\(\);\s*$/, `
   window.__testHooks = {
+    transcriptDomSelectors,
+    extractFromDOM,
     extractTextFromJson3,
     isAllowedCaptionUrl,
     formatPublishDate,
@@ -273,3 +275,11 @@ test('extracts visible transcript text when YouTube page data calls fail', () =>
   assert.ok(format('2026-11-06', new Date('2026-11-05T12:00:00Z')));
   assert.equal(format('2026-11-09', new Date('2026-11-05T12:00:00Z')), null);
  });
+
+test('supports current and legacy panel and row selectors', () => {
+ const selectors = context.window.__testHooks.transcriptDomSelectors();
+ assert.match(selectors.panels[0], /engagement-panel-searchable-transcript/);
+ assert.match(selectors.panels[1], /PAmodern_transcript_view/);
+ assert.match(selectors.panels[2], /engagement-panel-transcript/);
+ assert.deepEqual(Array.from(selectors.segments), ['ytd-transcript-segment-renderer', 'transcript-segment-view-model']);
+});

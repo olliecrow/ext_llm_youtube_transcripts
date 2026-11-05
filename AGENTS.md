@@ -10,7 +10,7 @@
 - Support standard watch, Shorts, embed, mobile watch, and `youtu.be` URLs only when they contain a valid 11-character video ID. Parse URLs and validate exact hosts; never use loose substring matching.
 - Keep manifest host permissions aligned with the supported YouTube hosts, including bare `youtube.com`. Do not widen permissions without a concrete extraction need.
 - Parse embedded YouTube JSON with string- and escape-aware boundaries. Search transcript parameters by shape across `ytInitialData` and `playerResponse`, not one brittle fixed path.
-- Use visible transcript rows only as the last fallback when data calls fail. Preserve the tested timestamp variants and stop boundaries that prevent sidebar text from leaking into output.
+- Prefer the visible transcript panel, then try bounded YouTube data calls. Query searchable, modern, and legacy transcript panel IDs in that order. Preserve the tested timestamp variants and stop boundaries that prevent sidebar text from leaking into output.
 - Preserve one-click batch export, context-menu single export/copy, local-only processing, per-video Markdown files, and metadata formatting unless an intentional user-visible change updates `README.md`.
 
 ## Development
