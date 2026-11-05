@@ -75,6 +75,8 @@ test('sensitive-text policy allows only exact placeholder paths', () => {
       const result = scanText(dir, text);
       assert.equal(result.status, expected, `${label}\n${result.stderr}`);
       assert.ok(!result.stderr.includes('alice'), `${label} must not print the value`);
+      assert.ok(!result.stdout.includes('alice'), `${label} must not print the value`);
+      if (expected === 1) assert.match(result.stderr, /sample\.txt:1/, label);
     }
   });
 });
@@ -227,9 +229,53 @@ test('shell policy rejects JSON assignments and modern token formats', () => {
   const value = 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5';
   const samples = [JSON.stringify({ ['tok' + 'en']: value }),
     ...['sk-ant-oat01-', 'sk-ant-api03-', 'sk-proj-', 'ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_'].map(prefix => prefix + value),
+    'sk-' + value,
+    'x=sk-ant-api03-a_b-' + value,
+    '"sk-proj-' + value + '-x_y"',
+    'OPENAI=sk-' + value,
+    'AKIA' + 'IOSFODNN7EXAMPLE',
     ['ey' + 'JhbGciOiJIUzI1NiJ9', 'ey' + 'JzdWIiOiJmaXh0dXJlIn0', value].join('.')];
   withTempDir(dir => {
-    for (const sample of samples) assert.equal(scanText(dir, sample).status, 1, 'token format must be blocked');
+    for (const sample of samples) {
+      const result = scanText(dir, sample);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /sample\.txt:1/);
+      assert.equal(result.stderr.includes(value), false);
+      assert.equal(result.stdout.includes(value), false);
+    }
+  });
+});
+
+test('token rules allow ordinary words and ignore mid-word prefixes', () => {
+  const value = 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5';
+  const samples = [
+    'class="task-list-item-checkbox-v2"',
+    'the risk-assessment-for-new-users doc',
+    'see desk-booking_service_module',
+    'sk-abcd-efgh-ijkl-mnop-qrst',
+    'my' + 'ghp_' + value,
+    'x' + 'github_pat_' + value,
+    'XX' + 'AKIA' + 'IOSFODNN7EXAMPLE',
+    'they' + 'JhbGciOiJIUzI1NiJ9.' + 'ey' + 'JzdWIiOiJmaXh0dXJlIn0.' + value
+  ];
+  withTempDir(dir => {
+    for (const sample of samples) {
+      const result = scanText(dir, sample);
+      assert.equal(result.status, 0, result.stderr);
+    }
+  });
+});
+
+test('sensitive-text names the offending line and omits the value', () => {
+  const value = 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5';
+  withTempDir(dir => {
+    const file = path.join(dir, 'sample.txt');
+    fs.writeFileSync(file, `clean line\n${'sk-' + value}\n`);
+    const result = run(textScript, ['--context=sample', file]);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /policy violation in sample: .*sample\.txt:2/);
+    assert.equal(result.stderr.includes(value), false);
+    assert.equal(result.stdout, '');
   });
 });
 
