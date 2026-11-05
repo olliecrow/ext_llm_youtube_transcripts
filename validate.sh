@@ -95,7 +95,7 @@ fi
 policy_files=()
 while IFS= read -r -d '' policy_file; do
   policy_files+=("$policy_file")
-done < <(git ls-files -z -- '*.js' '*.json' '*.md' '*.html' '*.sh' '*.yml' '*.yaml')
+done < <(git ls-files -z -- '*.js' '*.json' '*.md' '*.html' '*.sh' '*.toml' '*.yml' '*.yaml')
 bash scripts/security/check-sensitive-text.sh --context=tree "${policy_files[@]}"
 
 echo "Running unit tests..."

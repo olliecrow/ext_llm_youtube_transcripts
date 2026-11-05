@@ -9,9 +9,11 @@ description = "Do not commit local absolute system paths in this public-ready re
 regex = '''(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|[A-Za-z]:\\+Users\\+[A-Za-z0-9._-]+)'''
 tags = ["policy", "privacy"]
 
+# Gitleaks' default global allowlist skips matches such as /home/<name>.
+# scripts/security/check-sensitive-text.sh covers those paths in the hooks and CI.
 [[rules.allowlists]]
-description = "Allow explicit placeholder examples used in policy/docs."
-regexTarget = "line"
+description = "Allow a match only when the whole match is a placeholder path. Other paths on the same line are still reported."
+regexTarget = "secret"
 regexes = [
-  '''(/Users/(YOU|USER|username)|/home/(user|USER|username)|[A-Za-z]:\\+Users\\+(YOU|USER|USERNAME|username))'''
+  '''^(/Users/(YOU|USER|username)|/home/(user|USER|username)|[A-Za-z]:\\+Users\\+(YOU|USER|USERNAME|username))$'''
 ]

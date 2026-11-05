@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Block local paths, credential-like values, and non-noreply emails.
+# A missing file or a failed scan exits 2, so an error never reads as clean.
 set -euo pipefail
 
 context="text"
@@ -16,43 +18,51 @@ local_path_regex='(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|[A-Za-z]:\\+User
 allowed_path_placeholder_regex='(/Users/(YOU|USER|username)|/home/(user|USER|username)|[A-Za-z]:\\+Users\\+(YOU|USER|USERNAME|username))'
 secret_assignment_regex='([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Ss][Ee][Cc][Rr][Ee][Tt])[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_./+=-]{12,}'
 known_token_regex='((ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,})'
+email_regex='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 
-search_pattern() {
-  local pattern="$1"
-  local file_path="$2"
-  if command -v rg >/dev/null 2>&1; then
-    rg --line-number --no-heading --color never -e "$pattern" "$file_path" || true
-  else
-    grep -nE "$pattern" "$file_path" || true
-  fi
+scan_error() {
+  echo "error: unable to scan ${target} in ${context}" >&2
+  exit 2
 }
 
-exclude_pattern() {
-  local pattern="$1"
-  if command -v rg >/dev/null 2>&1; then
-    rg --invert-match --ignore-case --no-heading -e "$pattern" || true
-  else
-    grep -viE "$pattern" || true
-  fi
+# Print matches of an extended regex. grep exit 1 means no match.
+search() {
+  local status=0
+  grep "$@" || status=$?
+  [[ "$status" -le 1 ]] || return 2
+}
+
+# Print each local path that is not exactly a placeholder. Every match is
+# checked on its own, so a longer name that starts with a placeholder, or a
+# real path beside a placeholder on the same line, is still reported.
+# The regexes go through ENVIRON because awk -v would rewrite backslashes.
+disallowed_paths() {
+  LOCAL_PATH_REGEX="$local_path_regex" \
+    ALLOWED_PATH_REGEX="^${allowed_path_placeholder_regex}\$" \
+    awk '{
+      rest = $0
+      while (match(rest, ENVIRON["LOCAL_PATH_REGEX"])) {
+        found = substr(rest, RSTART, RLENGTH)
+        if (found !~ ENVIRON["ALLOWED_PATH_REGEX"]) print NR
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }' "$1"
 }
 
 failed=0
 for target in "$@"; do
-  if [[ ! -f "$target" ]]; then
-    continue
+  if [[ ! -f "$target" || ! -r "$target" ]]; then
+    echo "error: file not found or unreadable: ${target}" >&2
+    exit 2
   fi
 
-  path_matches="$(search_pattern "$local_path_regex" "$target")"
-  if [[ -n "$path_matches" ]]; then
-    path_matches="$(printf '%s\n' "$path_matches" | exclude_pattern "$allowed_path_placeholder_regex")"
-  fi
+  path_matches="$(disallowed_paths "$target")" || scan_error
+  secret_assignment_matches="$(search -anE -e "$secret_assignment_regex" -- "$target")" || scan_error
+  known_token_matches="$(search -anE -e "$known_token_regex" -- "$target")" || scan_error
+  emails="$(search -aoE -e "$email_regex" -- "$target")" || scan_error
+  email_matches="$(printf '%s\n' "$emails" | search -vE -e '@users\.noreply\.github\.com$' -e '^$')" || scan_error
 
-  secret_assignment_matches="$(search_pattern "$secret_assignment_regex" "$target")"
-  known_token_matches="$(search_pattern "$known_token_regex" "$target")"
-
-  email_matches="$(grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$target" | grep -vE '@users\.noreply\.github\.com$' || true)"
-  matches="$(printf '%s\n%s\n%s\n%s\n' "$path_matches" "$secret_assignment_matches" "$known_token_matches" "$email_matches" | sed '/^$/d' | sort -u)"
-  if [[ -n "$matches" ]]; then
+  if [[ -n "$path_matches$secret_assignment_matches$known_token_matches$email_matches" ]]; then
     echo "policy violation in ${context}: ${target}" >&2
     echo "Sensitive text found; values omitted." >&2
     failed=1
