@@ -60,7 +60,10 @@ jobs:
           set -euo pipefail
           range="$(bash scripts/security/resolve-commit-range.sh)"
           # Also scan what a merge commit adds against its first parent.
-          gitleaks git --redact --verbose --config .gitleaks.toml --log-opts="--diff-merges=first-parent ${range}"
+          bash scripts/security/gitleaks-range.sh "${range}"
+
+      - name: Test security scanners with gitleaks
+        run: node --test test/security-policy.test.js
 
       - name: Self-test gitleaks path policy
         run: |

@@ -34,9 +34,12 @@ if [[ "$#" -eq 0 ]]; then
   # An all-zero target deletes a ref. Nothing new is sent.
   [[ "$to_ref" != "$zero_ref" ]] || exit 0
   if [[ -z "$from_ref" || "$from_ref" == "$zero_ref" ]]; then
-    commit_list="$(git rev-list "$to_ref" --not --remotes)" ||
+    exclusions=()
+    if [[ -n "${PRE_COMMIT_REMOTE_NAME:-}" ]]; then
+      exclusions=(--not "--remotes=${PRE_COMMIT_REMOTE_NAME}")
+    fi
+    commit_list="$(git rev-list "$to_ref" "${exclusions[@]}")" ||
       die "unable to list commits for the push range"
-    [[ -n "$commit_list" ]] || commit_list="$to_ref"
   else
     [[ "$from_ref" =~ $sha_regex ]] || die "push base is not a full commit ID"
     commit_list="$(git rev-list "${from_ref}..${to_ref}")" ||
@@ -67,7 +70,7 @@ printf '%s\n' "$commit_list" |
 # --no-textconv print the real content instead of running a diff driver.
 printf '%s\n' "$commit_list" |
   git log --stdin --no-walk=unsorted -m --first-parent --format= --patch \
-    --no-color --unified=0 --no-ext-diff --no-textconv |
+    --text --no-color --unified=0 --no-ext-diff --no-textconv |
   awk '/^diff / { in_hunk = 0; next } /^@@ / { in_hunk = 1; next } in_hunk && /^\+/ { sub(/^\+/, ""); print }' \
     >"${added_lines_file}"
 

@@ -8,6 +8,8 @@ const test = require('node:test');
 const scripts = path.join(__dirname, '..', 'scripts', 'security');
 const textScript = path.join(scripts, 'check-sensitive-text.sh');
 const rangeScript = path.join(scripts, 'check-push-range.sh');
+const leaksScript = path.join(scripts, 'gitleaks-range.sh');
+const hasGitleaks = spawnSync('gitleaks', ['version']).status === 0;
 
 // Sensitive samples are built at run time so this file passes its own scan.
 const unix = name => ['', 'home', name].join('/');
@@ -147,5 +149,76 @@ test('push-range check reads pre-commit refs and fails closed', () => {
     assert.notEqual(hook({}).status, 0, 'no range');
     assert.notEqual(hook({ PRE_COMMIT_FROM_REF: 'b'.repeat(40), PRE_COMMIT_TO_REF: root }).status, 0, 'an unknown base');
     assert.notEqual(hook({ PRE_COMMIT_LOCAL_BRANCH: '--all' }).status, 0, 'an option as a ref');
+  });
+});
+
+for (const shape of ['NUL', 'new attribute', 'parent attribute', 'later attribute']) {
+  test(`push scan rejects a secret hidden by ${shape}`, () => {
+    withTempDir(cwd => {
+      git(cwd, ['init', '-q', '-b', 'main']);
+      const base = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+      if (shape === 'parent attribute') commitFile(cwd, '.gitattributes', '* -diff\n', 'attributes');
+      if (shape === 'new attribute') fs.writeFileSync(path.join(cwd, '.gitattributes'), '* -diff\n');
+      fs.writeFileSync(path.join(cwd, 'secret.txt'), `token=${'gh' + 'p_' + 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5'}\n${shape === 'NUL' ? '\0' : ''}`);
+      git(cwd, ['add', '.']);
+      git(cwd, ['commit', '-q', '-m', 'sample']);
+      if (shape === 'later attribute') commitFile(cwd, '.gitattributes', '* -diff\n', 'attributes');
+      const head = git(cwd, ['rev-parse', 'HEAD']);
+      const result = run(rangeScript, ['--range', `${base}..${head}`], { cwd });
+      assert.equal(result.status, 1, result.stderr);
+      if (hasGitleaks) {
+        const leaks = run(leaksScript, [`${base}..${head}`], { cwd });
+        assert.equal(leaks.status, 1, leaks.stdout + leaks.stderr);
+      }
+    });
+  });
+}
+
+test('zero-base pushes do not exclude commits on unrelated remotes', () => {
+  withTempDir(cwd => {
+    git(cwd, ['init', '-q', '-b', 'main']);
+    const base = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+    commitFile(cwd, 'secret.txt', `${unix('alice')}\n`, 'ancestor');
+    const head = commitFile(cwd, 'clean.txt', 'still clean\n', 'tip');
+    git(cwd, ['update-ref', 'refs/remotes/backup/main', head]);
+    git(cwd, ['update-ref', 'refs/remotes/origin/main', base]);
+    for (const remote of ['', 'origin']) {
+      const result = run(rangeScript, [], { cwd, env: {
+        PRE_COMMIT_FROM_REF: '0'.repeat(40), PRE_COMMIT_TO_REF: head,
+        PRE_COMMIT_REMOTE_NAME: remote
+      } });
+      assert.equal(result.status, 1, `remote=${remote}\n${result.stderr}`);
+    }
+    git(cwd, ['update-ref', 'refs/remotes/origin/main', head]);
+    assert.equal(run(rangeScript, [], { cwd, env: {
+      PRE_COMMIT_TO_REF: head, PRE_COMMIT_REMOTE_NAME: 'origin'
+    } }).status, 0, 'no new commits on the target remote');
+  });
+});
+
+test('gitleaks wrapper rejects logged errors and silent zero-commit scans', () => {
+  withTempDir(cwd => {
+    git(cwd, ['init', '-q', '-b', 'main']);
+    const base = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+    const bin = path.join(cwd, 'bin');
+    fs.mkdirSync(bin);
+    for (const log of ['ERR git failed', 'INF 0 commits scanned', 'INF no leaks found']) {
+      fs.writeFileSync(path.join(bin, 'gitleaks'), `#!/bin/sh\necho '${log}'\nexit 0\n`, { mode: 0o755 });
+      const result = run(leaksScript, [base], { cwd, env: { PATH: `${bin}:${process.env.PATH}` } });
+      assert.equal(result.status, 2, result.stdout + result.stderr);
+    }
+    assert.equal(run(leaksScript, ['a'.repeat(40)], { cwd }).status, 2);
+  });
+});
+
+test('gitleaks accepts empty and deletion-only ranges', { skip: !hasGitleaks }, () => {
+  withTempDir(cwd => {
+    git(cwd, ['init', '-q', '-b', 'main']);
+    const base = commitFile(cwd, 'clean.txt', 'clean\n', 'base');
+    const head = commitFile(cwd, 'clean.txt', '', 'remove');
+    for (const range of [`${base}..${base}`, `${base}..${head}`]) {
+      const result = run(leaksScript, [range], { cwd });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+    }
   });
 });
