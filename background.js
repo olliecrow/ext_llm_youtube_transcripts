@@ -3,6 +3,7 @@ const activeOperations = new Map();
 
 // Track pending extraction promises for event-driven communication
 const pendingExtractions = new Map();
+const badgeTimers = new Map();
 
 let batchExportInProgress = false;
 
@@ -63,8 +64,7 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
   }
 
   if (!isSupportedYouTubeVideoUrl(tab.url)) {
-    showBadge(tabId, '!', '#FF0000');
-    setTimeout(() => clearBadge(tabId), 3000);
+    showBadge(tabId, "!", "#FF0000", 3000, "Export failed; open a supported YouTube video and try again");
     return false;
   }
 
@@ -100,9 +100,8 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
       await extractionPromise.catch(() => {});
     }
 
-    console.error('Error executing transcript action:', error);
-    showBadge(tabId, '!', '#FF0000');
-    setTimeout(() => clearBadge(tabId), 3000);
+    console.error("Transcript action failed");
+    showBadge(tabId, "!", "#FF0000", 10000, error.message);
     activeOperations.delete(tabId);
     return false;
   } finally {
@@ -114,21 +113,19 @@ async function executeTranscriptAction(tab, mode = 'markdown') {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (!sender.tab) return;
+  if (sender.id !== chrome.runtime.id || !isSupportedYouTubeVideoUrl(sender.tab?.url)) return;
   
   const tabId = sender.tab.id;
   
   switch (message.type) {
     case 'EXTRACTION_SUCCESS':
-      showBadge(tabId, "✓", "#4CAF50");
-      setTimeout(() => clearBadge(tabId), 2000);
+      showBadge(tabId, "✓", "#4CAF50", 2000);
       activeOperations.delete(tabId);
       settlePendingExtraction(tabId);
       break;
       
     case 'EXTRACTION_ERROR':
-      showBadge(tabId, "!", "#FF0000");
-      setTimeout(() => clearBadge(tabId), 3000);
+      showBadge(tabId, "!", "#FF0000", 3000, message.error?.message || "Extraction failed");
       activeOperations.delete(tabId);
       settlePendingExtraction(
         tabId,
@@ -138,19 +135,38 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
 });
 
-// Badge management functions
-function showBadge(tabId, text, color) {
-  chrome.action.setBadgeText({ text: text, tabId: tabId });
-  chrome.action.setBadgeBackgroundColor({ color: color, tabId: tabId });
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== 'yt-transcript') return;
+  if (port.sender?.id !== chrome.runtime.id || !isSupportedYouTubeVideoUrl(port.sender?.tab?.url)) {
+    port.disconnect();
+    return;
+  }
+  port.onMessage.addListener(() => { /* Messages reset the worker idle timer. */ });
+  port.onDisconnect.addListener(() => {
+    settlePendingExtraction(port.sender.tab.id, new Error('Extraction interrupted'));
+  });
+});
+
+function showBadge(tabId, text, color, duration = 0, title) {
+  clearTimeout(badgeTimers.get(tabId));
+  badgeTimers.delete(tabId);
+  void Promise.resolve(chrome.action.setBadgeText({ text, tabId })).catch(() => {});
+  void Promise.resolve(chrome.action.setBadgeBackgroundColor({ color, tabId })).catch(() => {});
+  void Promise.resolve(chrome.action.setTitle({ tabId, title: title || chrome.runtime.getManifest().action.default_title })).catch(() => {});
+  if (duration) badgeTimers.set(tabId, setTimeout(() => clearBadge(tabId), duration));
 }
 
 function clearBadge(tabId) {
-  chrome.action.setBadgeText({ text: "", tabId: tabId });
+  clearTimeout(badgeTimers.get(tabId));
+  badgeTimers.delete(tabId);
+  void Promise.resolve(chrome.action.setBadgeText({ text: '', tabId })).catch(() => {});
+  void Promise.resolve(chrome.action.setTitle({ tabId, title: chrome.runtime.getManifest().action.default_title })).catch(() => {});
 }
 
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   activeOperations.delete(tabId);
+  clearBadge(tabId);
   settlePendingExtraction(tabId, new Error('Tab closed'));
 });
 
@@ -173,8 +189,8 @@ async function exportAllYouTubeTabs() {
       // No YouTube tabs found - show error on current tab if possible
       const [currentTab] = await chrome.tabs.query({active: true, currentWindow: true});
       if (currentTab) {
-        showBadge(currentTab.id, "!", "#FF0000");
-        setTimeout(() => clearBadge(currentTab.id), 3000);
+        showBadge(currentTab.id, "!", "#FF0000", 3000);
+
       }
       return;
     }
@@ -203,7 +219,7 @@ async function exportAllYouTubeTabs() {
       activeOperations.set(tab.id, 'markdown');
       
       try {
-        console.log(`Processing tab ${i + 1}/${youtubeTabs.length}: ${tab.url}`);
+        console.log(`Processing tab ${i + 1}/${youtubeTabs.length}: ${videoIdFromUrl(tab.url)}`);
         
         // Activate the tab to ensure it loads
         try {
@@ -262,9 +278,8 @@ async function exportAllYouTubeTabs() {
           await extractionPromise.catch(() => {});
         }
 
-        console.error(`Failed to extract from tab ${tab.id} (${tab.url}):`, error.message);
-        showBadge(tab.id, "!", "#FF0000");
-        setTimeout(() => clearBadge(tab.id), 3000);
+        console.error(`Failed to extract from tab ${tab.id} (${videoIdFromUrl(tab.url)}):`, error.message);
+        showBadge(tab.id, "!", "#FF0000", 10000, error.message);
         failCount++;
         
         // Continue to next tab even if this one failed
@@ -277,16 +292,9 @@ async function exportAllYouTubeTabs() {
     if (currentTab) {
       console.log(`Export complete: ${successCount} succeeded, ${failCount} failed out of ${youtubeTabs.length} YouTube tabs`);
       
-      if (successCount > 0 && failCount === 0) {
-        showBadge(currentTab.id, `✓${successCount}`, "#4CAF50");
-      } else if (successCount > 0 && failCount > 0) {
-        showBadge(currentTab.id, `${successCount}/${youtubeTabs.length}`, "#FFA500");
-      } else if (failCount > 0 && youtubeTabs.length > 0) {
-        showBadge(currentTab.id, `0/${youtubeTabs.length}`, "#FF0000");
-      } else {
-        showBadge(currentTab.id, "0", "#FF0000");
-      }
-      setTimeout(() => clearBadge(currentTab.id), 10000); // Show result longer
+      showBadge(currentTab.id, successCount ? String(successCount).slice(0, 4) : '!',
+        failCount ? '#FFA500' : '#4CAF50', 10000,
+        `${successCount} of ${youtubeTabs.length} transcripts exported`);
     }
     
   } catch (error) {
@@ -404,4 +412,9 @@ function waitForExtraction(tabId, timeout = 30000) { // Default 30 seconds
     // Store promise resolvers for event-driven completion
     pendingExtractions.set(tabId, { resolve, reject, timeoutId });
   });
+}
+
+function videoIdFromUrl(value) {
+  const url = new URL(value);
+  return url.searchParams.get('v') || url.pathname.split('/').filter(Boolean).pop();
 }

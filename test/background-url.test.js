@@ -12,7 +12,8 @@ const context = {
     action: {
       onClicked: { addListener() {} },
       setBadgeBackgroundColor() {},
-      setBadgeText() {}
+      setBadgeText() {},
+      setTitle() {}
     },
     contextMenus: {
       create() {},
@@ -22,6 +23,9 @@ const context = {
       }
     },
     runtime: {
+      id: "test-extension",
+      getManifest: () => ({ action: { default_title: "Export" } }),
+      onConnect: { addListener() {} },
       onInstalled: { addListener() {} },
       onMessage: {
         addListener(listener) {
@@ -95,7 +99,7 @@ test('rejects non-video and non-YouTube URLs', () => {
 
 test('settles pending extraction from current content-script messages', async () => {
   const success = context.waitForExtraction(101, 1000);
-  runtimeMessageListener({ type: 'EXTRACTION_SUCCESS' }, { tab: { id: 101 } });
+  runtimeMessageListener({ type: 'EXTRACTION_SUCCESS' }, { id: "test-extension", tab: { id: 101, url: "https://www.youtube.com/watch?v=kxpbdFMgPJ4" } });
   await success;
 
   const failure = context.waitForExtraction(102, 1000);
@@ -104,7 +108,7 @@ test('settles pending extraction from current content-script messages', async ()
       type: 'EXTRACTION_ERROR',
       error: { message: 'No transcript available' }
     },
-    { tab: { id: 102 } }
+    { id: "test-extension", tab: { id: 102, url: "https://www.youtube.com/watch?v=kxpbdFMgPJ4" } }
   );
   await assert.rejects(failure, /No transcript available/);
 });
@@ -147,4 +151,16 @@ test('batch export cleans up send failures and restores active tabs', async () =
     activatedTabIds,
     [targetTab.id, originalTab.id, targetTab.id, originalTab.id]
   );
+});
+
+test('ignores messages from other extensions and unsupported pages', async () => {
+  const pending = context.waitForExtraction(103, 1000);
+  for (const sender of [
+    { id: 'other', tab: { id: 103, url: 'https://www.youtube.com/watch?v=kxpbdFMgPJ4' } },
+    { id: 'test-extension', tab: { id: 103, url: 'https://evil.example/watch?v=kxpbdFMgPJ4' } },
+    { id: 'test-extension', tab: { id: 103 } }
+  ]) runtimeMessageListener({ type: 'EXTRACTION_SUCCESS' }, sender);
+  assert.equal(vm.runInContext('pendingExtractions.has(103)', context), true);
+  context.settlePendingExtraction(103);
+  await pending;
 });

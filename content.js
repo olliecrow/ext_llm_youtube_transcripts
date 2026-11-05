@@ -109,6 +109,10 @@
 
     announceToScreenReader('Starting transcript extraction', 'polite');
 
+    const port = chrome.runtime.connect({ name: 'yt-transcript' });
+    const ping = () => { try { port.postMessage({ type: 'ping' }); } catch {} };
+    ping();
+    const heartbeat = setInterval(ping, 20000);
     try {
       const videoId = extractVideoId();
       if (!videoId) {
@@ -179,6 +183,8 @@
         }
       });
     } finally {
+      clearInterval(heartbeat);
+      port.disconnect();
       // Reset the in-progress flag
       extractionInProgress = false;
     }
