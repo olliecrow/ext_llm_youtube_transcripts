@@ -33,10 +33,13 @@
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      return await fetch(url, {
+      const response = await fetch(url, {
         ...options,
-        signal: controller.signal
+        signal: controller.signal,
+        redirect: 'error'
       });
+      const body = await response.text();
+      return { ok: response.ok, status: response.status, text: async () => body, json: async () => JSON.parse(body) };
     } catch (error) {
       if (error.name === 'AbortError') {
         throw new ExtensionError(`Network request timed out after ${timeoutMs / 1000} seconds`, 'NETWORK_TIMEOUT');
@@ -562,21 +565,7 @@
       }, NETWORK_TIMEOUT_MS);
       
       if (!response.ok) {
-        // Try without language parameter
-        const urlNoLang = `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}`;
-        const response2 = await fetchWithTimeout(urlNoLang, { credentials: 'include' }, NETWORK_TIMEOUT_MS);
-        
-        if (!response2.ok) {
-          throw new Error(`TimedText fetch failed: ${response2.status}`);
-        }
-        
-        const xmlText = await response2.text();
-        if (!xmlText || !xmlText.includes('<text')) {
-          throw new Error('No captions in TimedText response');
-        }
-        
-        const transcript = extractTextFromXML(xmlText);
-        return { transcript, language: 'unknown', source: 'timedtext' };
+        throw new Error(`TimedText fetch failed: ${response.status}`);
       }
       
       const xmlText = await response.text();
@@ -631,11 +620,22 @@
 
   async function extractFromDOM() {
     const selectors = transcriptDomSelectors();
-    const findPanel = () => selectors.panels.map(selector => document.querySelector(selector)).find(Boolean);
+    const findPanel = () => {
+      const panels = selectors.panels.map(selector => document.querySelector(selector)).filter(Boolean);
+      return panels.find(panel => panel.querySelector(selectors.segments.join(', '))) || panels.find(panel => panel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') || panels[0];
+    };
     let panel = findPanel();
     let segments = panel?.querySelectorAll(selectors.segments.join(', '));
     if (!segments?.length) {
-      const trigger = findTranscriptTrigger();
+      let trigger = findTranscriptTrigger();
+      if (!trigger) {
+        const expand = document.querySelector('#description-inline-expander #expand');
+        if (expand?.getClientRects().length) {
+          triggerClick(expand);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          trigger = findTranscriptTrigger();
+        }
+      }
       if (!trigger) throw new Error('No transcript button available for this video');
       triggerClick(trigger);
       // Wait for rows, not the hidden panel shell present before it is opened.
@@ -737,10 +737,12 @@
         return;
       }
       
+      let timeoutId;
       const observer = new MutationObserver((mutations, obs) => {
         const element = document.querySelector(selector);
         if (element) {
           obs.disconnect();
+          clearTimeout(timeoutId);
           resolve(element);
         }
       });
@@ -750,7 +752,7 @@
         subtree: true
       });
       
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         observer.disconnect();
         reject(new Error(`Element ${selector} not found after ${timeout}ms`));
       }, timeout);
