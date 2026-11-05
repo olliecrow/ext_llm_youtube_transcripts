@@ -96,6 +96,7 @@ No storage permission is used.
 ## Limitations
 
 - A video must have a transcript that YouTube makes available.
+- If a network request times out and no fallback succeeds, the error asks you to check your connection and retry.
 - The visible transcript panel is tried first. Data fallbacks use the first caption track.
 - English UI labels are used to find the transcript control.
 - Embed pages can have no transcript UI.

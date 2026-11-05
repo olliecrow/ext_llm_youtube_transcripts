@@ -325,6 +325,7 @@
       extractFromVisibleText
     ];
 
+    let networkTimeout = null;
     for (const method of methods) {
       try {
         const result = await method(videoId);
@@ -333,7 +334,8 @@
           return result.transcript;
         }
       } catch (error) {
-        // A miss must not abort later methods or replace a panel result.
+        // A later method can still succeed after a network timeout.
+        if (error?.code === 'NETWORK_TIMEOUT') networkTimeout = error;
         if (!isExpectedExtractionMiss(error)) {
           const message = typeof error?.message === 'string' ? error.message : 'Unknown extraction error';
           console.warn(`Method ${method.name} failed:`, message);
@@ -341,6 +343,7 @@
       }
     }
 
+    if (networkTimeout) throw networkTimeout;
     return null;
   }
   

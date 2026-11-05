@@ -566,3 +566,20 @@ test('continues extraction when one method throws without a message', async () =
     assert.equal(transcript, 'Still available.');
   });
 });
+
+for (const visible of [false, true]) {
+  test(`network timeout ${visible ? 'still permits visible-text fallback' : 'is preserved when no transcript succeeds'}`, async () => {
+    await withPage({
+      immediateTimers: true,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      documentElement: { lang: 'en' },
+      innerText: visible ? 'Transcript\nSearch transcript\nAvailable after timeout.\nAll' : '',
+      fetch: async () => { const error = new Error('aborted'); error.name = 'AbortError'; throw error; }
+    }, async () => {
+      const result = context.window.__testHooks.extractTranscript('kxpbdFMgPJ4');
+      if (visible) assert.equal(await result, 'Available after timeout.');
+      else await assert.rejects(result, error => error.code === 'NETWORK_TIMEOUT');
+    });
+  });
+}
